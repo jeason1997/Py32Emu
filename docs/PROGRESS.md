@@ -108,9 +108,14 @@
 - `external_irq_count` 现在真实约束 NVIC 可见、可写和可服务的 IRQ；单测用仅含 GPIOA、
   8 路 IRQ 的裁剪描述验证 GPIOB/USART1/ADC1 不会映射，越界 NVIC 位不会生效。
 
+- 新增可复用 CRC 外设模型：AHB 时钟门控、`DR/IDR/CR.RESET` 和标准
+  `0x04C11DB7` 32 位累积；能力位可供未来 PY32F003 描述复用。
+- 原版官方 `CRC_Computing_Results` 已在模拟器中处理 114 个 32 位字，得到手册例程期望的
+  `0x379E9F06`，并进入板载 LED 低有效的成功分支。
+
 ### 正在进行
 
-- 继续完善缺失外设语义与调试器源码级能力；待取得 PY32F003 对应资料后增加正式描述。
+- 继续接入 IWDG、LPTIM、COMP、FLASH 擦写等官方 SDK 示例。
 
 ### 下一步
 

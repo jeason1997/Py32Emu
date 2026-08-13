@@ -94,6 +94,7 @@ int main(void)
     assert(py32_chip_by_name("unknown") == NULL);
     assert(py32_chip_by_name("py32f002a-32k")->flash_size == 32u * 1024u);
     assert(py32_chip_by_name("py32f002a-32k")->sram_size == 4u * 1024u);
+    assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC));
     py32_firmware_image_init(&image);
     assert(py32_firmware_load_hex(&image, "tests/fixtures/minimal.hex",
                                   chip->flash_base, chip->flash_size,
@@ -175,6 +176,7 @@ int main(void)
     assert(!py32_bus_read(&trimmed_soc.bus, 0x50000400u, 4u, &value));
     assert(!py32_bus_read(&trimmed_soc.bus, 0x40013800u, 4u, &value));
     assert(!py32_bus_read(&trimmed_soc.bus, 0x40012400u, 4u, &value));
+    assert(!py32_bus_read(&trimmed_soc.bus, 0x40023000u, 4u, &value));
     assert(py32_bus_write(&trimmed_soc.bus, 0xE000E100u, 4u,
                           (1u << 3) | (1u << 12)));
     assert(py32_bus_read(&trimmed_soc.bus, 0xE000E100u, 4u, &value));
@@ -185,6 +187,14 @@ int main(void)
 
     assert(py32_soc_configure(&soc, chip, &image, error, sizeof(error)));
     assert(py32_soc_reset(&soc, error, sizeof(error)));
+    assert(py32_bus_write(&soc.bus, 0x40021038u, 4u, 1u << 12));
+    assert(py32_bus_write(&soc.bus, 0x40023008u, 4u, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40023000u, 4u, 0x12345678u));
+    assert(py32_bus_read(&soc.bus, 0x40023000u, 4u, &value));
+    assert(value == 0xDF8A8A2Bu);
+    assert(py32_bus_write(&soc.bus, 0x40023004u, 1u, 0xA5u));
+    assert(py32_bus_read(&soc.bus, 0x40023004u, 4u, &value));
+    assert(value == 0xA5u);
     soc.cpu.r[1] = chip->sram_base;
     while (!soc.cpu.stopped) py32_soc_step(&soc);
     assert(soc.cpu.stop_reason == CORTEX_M0_STOP_BKPT);

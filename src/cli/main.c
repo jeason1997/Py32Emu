@@ -121,6 +121,10 @@ int main(int argc, char **argv)
         printf("ADC1: DR=%u CHSELR=0x%X conversions=%llu\n",
                (unsigned)soc.adc1.dr, (unsigned)soc.adc1.chselr,
                (unsigned long long)soc.adc1.conversion_count);
+    if (py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC) &&
+        (soc.rcc.ahbenr & (1u << 12)) != 0u)
+        printf("CRC: DR=0x%08X IDR=0x%02X\n",
+               soc.crc.dr, soc.crc.idr);
     if (soc.usart1.tx_count > 0u) {
         size_t n;
         printf("USART1 TX (%zu):", soc.usart1.tx_count);

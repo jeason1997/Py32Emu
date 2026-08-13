@@ -14,6 +14,7 @@
 #include "py32emu/peripherals/i2c.h"
 #include "py32emu/peripherals/adc.h"
 #include "py32emu/peripherals/exti.h"
+#include "py32emu/peripherals/crc.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -32,6 +33,7 @@ typedef struct {
     Py32I2c i2c1;
     Py32Adc adc1;
     Py32Exti exti;
+    Py32Crc crc;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
