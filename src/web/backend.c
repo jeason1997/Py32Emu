@@ -130,7 +130,10 @@ static void state_json(void)
         if (i != 0u) putchar(',');
         printf("%u", soc.usart1.tx[i]);
     }
-    fputs("],\"breakpoints\":[", stdout);
+    printf("],\"comp\":{\"csr1\":%u,\"csr2\":%u,"
+           "\"pa1Mv\":%u,\"pa3Mv\":%u},\"breakpoints\":[",
+           soc.comp12.csr[0], soc.comp12.csr[1],
+           soc.comp12.plus_mv[0][2], soc.comp12.plus_mv[1][2]);
     for (i = 0; i < breakpoint_count; ++i) {
         if (i != 0u) putchar(',');
         printf("%u", breakpoints[i]);
@@ -293,6 +296,15 @@ int main(void)
             state_json();
         } else if (strcmp(command, "usart_rx") == 0) {
             receive_usart(field(&cursor));
+            state_json();
+        } else if (strcmp(command, "analog") == 0) {
+            char *port = field(&cursor), *pin = field(&cursor);
+            char *millivolts = field(&cursor);
+            py32_soc_set_analog_input(&soc,
+                port != NULL ? (unsigned)strtoul(port, NULL, 0) : 0u,
+                pin != NULL ? (unsigned)strtoul(pin, NULL, 0) : 0u,
+                millivolts != NULL
+                    ? (uint16_t)strtoul(millivolts, NULL, 0) : 0u);
             state_json();
         } else error_json("未知调试命令");
     }

@@ -22,6 +22,7 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c src/core/disassembler.c \
 	src/peripherals/iwdg.c \
 	src/peripherals/flash.c \
 	src/peripherals/lptim.c \
+	src/peripherals/comp.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
 WEB_SOURCES := src/web/backend.c
@@ -44,6 +45,7 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/crc.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/iwdg.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/flash.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/lptim.o
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/comp.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(WEB_SOURCES:.c=.o))
@@ -91,6 +93,7 @@ integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_official_iwdg.sh
 	sh tests/integration/test_official_flash.sh
 	sh tests/integration/test_official_lptim.sh
+	sh tests/integration/test_official_comp.sh
 	sh tests/integration/test_official_exti.sh
 	sh tests/integration/test_nvic_preemption.sh
 	sh tests/integration/test_dual_stack.sh

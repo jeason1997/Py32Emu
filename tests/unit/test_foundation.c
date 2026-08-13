@@ -96,6 +96,7 @@ int main(void)
     assert(py32_chip_by_name("py32f002a-32k")->sram_size == 4u * 1024u);
     assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC));
     assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_LPTIM1));
+    assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_COMP12));
     py32_firmware_image_init(&image);
     assert(py32_firmware_load_hex(&image, "tests/fixtures/minimal.hex",
                                   chip->flash_base, chip->flash_size,
@@ -227,6 +228,23 @@ int main(void)
            (soc.lptim1.isr & (1u << 1)) != 0u);
     assert(py32_bus_write(&soc.bus, 0x40007C04u, 4u, 1u << 1));
     assert(soc.lptim1.isr == 0u);
+    /* COMP1 的 PA1 模拟输入跨越 VREFINT 时，经 EXTI17 请求共享 IRQ12。 */
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4u,
+                          soc.rcc.apbenr2 | (1u << 21)));
+    assert(py32_bus_write(&soc.bus, 0x40021800u, 4u, 1u << 17));
+    assert(py32_bus_write(&soc.bus, 0x40021804u, 4u, 1u << 17));
+    assert(py32_bus_write(&soc.bus, 0x40021880u, 4u, 1u << 17));
+    assert(py32_bus_write(&soc.bus, 0x40010200u, 4u,
+                          1u | (3u << 4) | (2u << 8)));
+    assert(!py32_comp_output(&soc.comp12, 0u));
+    py32_soc_set_analog_input(&soc, 0u, 1u, 1800u);
+    assert(py32_comp_output(&soc.comp12, 0u));
+    assert((soc.exti.pr & (1u << 17)) != 0u);
+    assert((py32_exti_irq_mask(&soc.exti) & (1u << 12)) != 0u);
+    assert(py32_bus_write(&soc.bus, 0x4002180Cu, 4u, 1u << 17));
+    py32_soc_set_analog_input(&soc, 0u, 1u, 500u);
+    assert(!py32_comp_output(&soc.comp12, 0u));
+    assert(py32_bus_write(&soc.bus, 0x4002180Cu, 4u, 1u << 17));
     assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0xFFFFFFFFu));
     assert(py32_bus_read(&soc.bus, 0x08002000u, 4u, &value));
     assert(value == 0x12345678u);

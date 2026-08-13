@@ -18,6 +18,7 @@
 #include "py32emu/peripherals/iwdg.h"
 #include "py32emu/peripherals/flash.h"
 #include "py32emu/peripherals/lptim.h"
+#include "py32emu/peripherals/comp.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -40,6 +41,7 @@ typedef struct {
     Py32Iwdg iwdg;
     Py32Flash flash_controller;
     Py32Lptim lptim1;
+    Py32Comp comp12;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
@@ -60,5 +62,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size);
 CortexM0StepResult py32_soc_step(Py32Soc *soc);
 void py32_soc_set_gpio_input(Py32Soc *soc, unsigned port, unsigned pin,
                              bool driven, bool high);
+void py32_soc_set_analog_input(Py32Soc *soc, unsigned port, unsigned pin,
+                               uint16_t millivolts);
 
 #endif

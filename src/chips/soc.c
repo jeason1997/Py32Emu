@@ -93,6 +93,7 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_flash_reset(&soc->flash_controller, soc->flash,
                      description->flash_size, description->flash_page_size);
     py32_lptim_reset(&soc->lptim1, &soc->rcc.apbenr1, 1u << 31);
+    py32_comp_reset(&soc->comp12, &soc->rcc.apbenr2, &soc->exti);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
     if (!py32_bus_add_device(&soc->bus, "flash-alias", 0x00000000u,
                              description->flash_size, py32_flash_memory_read,
@@ -164,7 +165,11 @@ bool py32_soc_configure(Py32Soc *soc,
         (has(soc, PY32_PERIPHERAL_LPTIM1) &&
          !py32_bus_add_device(&soc->bus, "lptim1", 0x40007C00u, 0x20u,
                              py32_lptim_read, py32_lptim_write,
-                             &soc->lptim1))) {
+                             &soc->lptim1)) ||
+        (has(soc, PY32_PERIPHERAL_COMP12) &&
+         !py32_bus_add_device(&soc->bus, "comp12", 0x40010200u, 0x18u,
+                             py32_comp_read, py32_comp_write,
+                             &soc->comp12))) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
@@ -211,6 +216,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
                      soc->description->flash_size,
                      soc->description->flash_page_size);
     py32_lptim_reset(&soc->lptim1, &soc->rcc.apbenr1, 1u << 31);
+    py32_comp_reset(&soc->comp12, &soc->rcc.apbenr2, &soc->exti);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz,
                       soc->description->external_irq_count);
@@ -292,4 +298,15 @@ void py32_soc_set_gpio_input(Py32Soc *soc, unsigned port, unsigned pin,
         py32_exti_input(&soc->exti, port, pin,
                         (before & (1u << pin)) != 0u,
                         (after & (1u << pin)) != 0u);
+}
+
+void py32_soc_set_analog_input(Py32Soc *soc, unsigned port, unsigned pin,
+                               uint16_t millivolts)
+{
+    if (soc == NULL || !has(soc, PY32_PERIPHERAL_COMP12)) return;
+    /* PY32F002A 的 COMP1/2 IO3 分别连接 PA1/PA3。 */
+    if (port == 0u && pin == 1u)
+        py32_comp_set_plus_input(&soc->comp12, 0u, 2u, millivolts);
+    else if (port == 0u && pin == 3u)
+        py32_comp_set_plus_input(&soc->comp12, 1u, 2u, millivolts);
 }

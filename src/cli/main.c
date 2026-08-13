@@ -17,6 +17,9 @@ int main(int argc, char **argv)
     bool pulse = false;
     unsigned pulse_port = 0u, pulse_pin = 0u;
     uint64_t pulse_at = 10000u;
+    bool analog = false;
+    unsigned analog_port = 0u, analog_pin = 0u, analog_mv = 0u;
+    uint64_t analog_at = 10000u;
     int i;
     char error[160];
 
@@ -53,6 +56,34 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--pulse-at") == 0 && i + 1 < argc)
             pulse_at = strtoull(argv[++i], NULL, 0);
+        else if (strcmp(argv[i], "--analog") == 0 && i + 1 < argc) {
+            const char *argument = argv[++i];
+            char *end;
+            unsigned long pin, millivolts;
+            if (strlen(argument) < 5u || argument[0] != 'P' ||
+                (argument[1] != 'A' && argument[1] != 'B' &&
+                 argument[1] != 'F')) {
+                fprintf(stderr, "无效模拟输入: %s\n", argument);
+                return 2;
+            }
+            analog_port = argument[1] == 'A' ? 0u
+                          : argument[1] == 'B' ? 1u : 2u;
+            pin = strtoul(argument + 2, &end, 10);
+            if (*end != '=' || pin >= 16u) {
+                fprintf(stderr, "无效模拟输入: %s\n", argument);
+                return 2;
+            }
+            millivolts = strtoul(end + 1, &end, 10);
+            if (*end != '\0' || millivolts > 5000u) {
+                fprintf(stderr, "无效模拟电压: %s\n", argument);
+                return 2;
+            }
+            analog_pin = (unsigned)pin;
+            analog_mv = (unsigned)millivolts;
+            analog = true;
+        }
+        else if (strcmp(argv[i], "--analog-at") == 0 && i + 1 < argc)
+            analog_at = strtoull(argv[++i], NULL, 0);
         else {
             fprintf(stderr, "未知参数: %s\n", argv[i]);
             return 2;
@@ -91,6 +122,9 @@ int main(int argc, char **argv)
     while (!soc.cpu.stopped && steps < limit) {
         if (pulse && steps == pulse_at)
             py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, false);
+        if (analog && steps == analog_at)
+            py32_soc_set_analog_input(&soc, analog_port, analog_pin,
+                                      (uint16_t)analog_mv);
         CortexM0StepResult result = py32_soc_step(&soc);
         if (trace) {
             const Py32FirmwareSymbol *symbol =
@@ -141,6 +175,12 @@ int main(int argc, char **argv)
                (unsigned)soc.lptim1.cnt, (unsigned)soc.lptim1.arr,
                (unsigned)soc.lptim1.isr,
                (unsigned long long)soc.lptim1.match_count);
+    if (py32_chip_has_peripheral(chip, PY32_PERIPHERAL_COMP12) &&
+        (soc.rcc.apbenr2 & ((1u << 21) | (1u << 22))) != 0u)
+        printf("COMP: CSR1=0x%08X CSR2=0x%08X transitions=%llu/%llu\n",
+               soc.comp12.csr[0], soc.comp12.csr[1],
+               (unsigned long long)soc.comp12.transition_count[0],
+               (unsigned long long)soc.comp12.transition_count[1]);
     if (py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC) &&
         (soc.rcc.ahbenr & (1u << 12)) != 0u)
         printf("CRC: DR=0x%08X IDR=0x%02X\n",

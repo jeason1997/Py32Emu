@@ -16,7 +16,8 @@ enum {
     PY32_PERIPHERAL_EXTI   = 1u << 9,
     PY32_PERIPHERAL_CRC    = 1u << 10,
     PY32_PERIPHERAL_IWDG   = 1u << 11,
-    PY32_PERIPHERAL_LPTIM1 = 1u << 12
+    PY32_PERIPHERAL_LPTIM1 = 1u << 12,
+    PY32_PERIPHERAL_COMP12 = 1u << 13
 };
 
 typedef struct {

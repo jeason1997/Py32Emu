@@ -1,5 +1,15 @@
 # Py32Emu 开发进度
 
+## 2026-08-13：COMP 模拟比较与共享中断阶段
+
+- 新增 COMP1/COMP2 成对模型和芯片能力位，支持 CSR/FR、正负输入选择、内部 VREF 分压、VCC、极性、输出与锁定语义。
+- EXTI 从 GPIO 0–15 扩展到内部线 17/18，COMP 输出跨越阈值时可按上升/下降沿产生 ADC_COMP 共享 IRQ12。
+- SoC、CLI 和 Web 调试台增加 PA1/PA3 毫伏输入接口；CLI 支持 `--analog PA1=1800 --analog-at N`。
+- 官方 `COMP_CompareGpioVsVrefint_Polling` 和 `..._IT` 均已在 WSL 运行；PA1 从 0mV 注入 1800mV 后 COMP1 输出变高，中断例程进入官方回调并翻转 PA5。
+- 单元测试覆盖 VREFINT 比较、输出转换、EXTI17 pending/W1C 和 IRQ12；Web 后端协议测试覆盖模拟输入注入。
+
+当前总体完成度：约 96%。下一阶段进行目标完成审计，补齐影响典型官方固件运行的剩余缺口，并整理可交付文档。
+
 ## 2026-08-13：LPTIM 低功耗唤醒阶段
 
 - 新增可复用 LPTIM1 模型和芯片能力位，支持 ISR/ICR/IER/CFGR/CR/ARR/CNT、单次启动、预分频和 ARRM 中断。

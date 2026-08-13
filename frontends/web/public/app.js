@@ -27,6 +27,7 @@ document.querySelectorAll("[data-command]").forEach(button => button.onclick = (
 $("run").onclick = () => action(() => post("/api/command", { command: "run", steps: 10000 }));
 $("setBreakpoint").onclick = () => action(() => post("/api/command", { command: "breakpoints", addresses: $("breakpoint").value.split(",").map(value => value.trim()).filter(Boolean) }));
 document.querySelectorAll("[data-level]").forEach(button => button.onclick = () => action(() => post("/api/command", { command: "gpio", port: Number($("gpioPort").value), pin: Number($("gpioPin").value), driven: button.dataset.level !== "release", high: button.dataset.level === "1" })));
+$("setAnalog").onclick = () => action(() => post("/api/command", { command: "analog", port: 0, pin: Number($("analogPin").value), millivolts: Number($("analogMv").value) }));
 $("sendTerminal").onclick = () => action(() => post("/api/command", { command: "usart_rx", bytes: [...new TextEncoder().encode($("terminalInput").value)] }));
 $("readMemory").onclick = async () => { try { const r = await post("/api/command", { command: "memory", address: $("memoryAddress").value, count: 64 });
   $("memory").textContent = r.data.map((v,i) => `${i%16===0 ? `\n${hex(r.address+i)}  ` : ""}${v.toString(16).padStart(2,"0")} `).join("").trim();

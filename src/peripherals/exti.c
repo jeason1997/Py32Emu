@@ -2,7 +2,7 @@
 
 #include <string.h>
 
-#define EXTI_LINES UINT32_C(0xFFFF)
+#define EXTI_LINES UINT32_C(0x7FFFF)
 
 void py32_exti_reset(Py32Exti *exti)
 {
@@ -63,6 +63,17 @@ void py32_exti_input(Py32Exti *exti, unsigned port, unsigned pin,
         exti->pr |= line;
 }
 
+void py32_exti_signal_line(Py32Exti *exti, unsigned line_number,
+                           bool old_high, bool new_high)
+{
+    uint32_t line;
+    if (exti == NULL || line_number >= 19u || old_high == new_high) return;
+    line = 1u << line_number;
+    if ((!old_high && new_high && (exti->rtsr & line) != 0u) ||
+        (old_high && !new_high && (exti->ftsr & line) != 0u))
+        exti->pr |= line;
+}
+
 uint32_t py32_exti_irq_mask(const Py32Exti *exti)
 {
     uint32_t pending;
@@ -72,5 +83,6 @@ uint32_t py32_exti_irq_mask(const Py32Exti *exti)
     if ((pending & 0x0003u) != 0u) irqs |= 1u << 5;
     if ((pending & 0x000Cu) != 0u) irqs |= 1u << 6;
     if ((pending & 0xFFF0u) != 0u) irqs |= 1u << 7;
+    if ((pending & ((1u << 17) | (1u << 18))) != 0u) irqs |= 1u << 12;
     return irqs;
 }
