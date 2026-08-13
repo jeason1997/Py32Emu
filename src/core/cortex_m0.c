@@ -5,6 +5,66 @@
 #define BIT(v, n) (((v) >> (n)) & 1u)
 #define FLAG(n) (1u << (n))
 
+static bool thread_uses_psp(const CortexM0 *cpu)
+{
+    return cpu->exception_number == 0u && (cpu->control & 2u) != 0u;
+}
+
+static void save_visible_sp(CortexM0 *cpu)
+{
+    if (thread_uses_psp(cpu)) cpu->psp = cpu->r[CORTEX_M0_SP];
+    else cpu->msp = cpu->r[CORTEX_M0_SP];
+}
+
+static uint32_t read_special(const CortexM0 *cpu, unsigned sysm)
+{
+    switch (sysm) {
+    case 0: return cpu->xpsr & 0xF0000000u;
+    case 1: return (cpu->xpsr & 0xF0000000u) | cpu->exception_number;
+    case 2: return cpu->xpsr & 0xF1000000u;
+    case 3: return cpu->xpsr;
+    case 5: return cpu->exception_number;
+    case 6: return cpu->xpsr & 0x01000000u;
+    case 7: return (cpu->xpsr & 0x01000000u) | cpu->exception_number;
+    case 8: return thread_uses_psp(cpu) ? cpu->msp : cpu->r[CORTEX_M0_SP];
+    case 9: return thread_uses_psp(cpu) ? cpu->r[CORTEX_M0_SP] : cpu->psp;
+    case 16: return cpu->primask ? 1u : 0u;
+    case 20: return cpu->control & 3u;
+    default: return 0u;
+    }
+}
+
+static bool write_special(CortexM0 *cpu, unsigned sysm, uint32_t value)
+{
+    switch (sysm) {
+    case 0:
+        cpu->xpsr = (cpu->xpsr & ~0xF0000000u) | (value & 0xF0000000u);
+        return true;
+    case 8:
+        value &= ~3u;
+        cpu->msp = value;
+        if (!thread_uses_psp(cpu)) cpu->r[CORTEX_M0_SP] = value;
+        return true;
+    case 9:
+        value &= ~3u;
+        cpu->psp = value;
+        if (thread_uses_psp(cpu)) cpu->r[CORTEX_M0_SP] = value;
+        return true;
+    case 16: cpu->primask = (value & 1u) != 0u; return true;
+    case 20:
+        if (cpu->exception_number == 0u) {
+            bool was_psp = thread_uses_psp(cpu);
+            if (was_psp) cpu->psp = cpu->r[CORTEX_M0_SP];
+            else cpu->msp = cpu->r[CORTEX_M0_SP];
+            cpu->control = value & 3u;
+            cpu->r[CORTEX_M0_SP] = (cpu->control & 2u) != 0u
+                ? cpu->psp : cpu->msp;
+        }
+        return true;
+    default: return false;
+    }
+}
+
 static void set_flag(CortexM0 *cpu, unsigned bit, bool value)
 {
     if (value) cpu->xpsr |= FLAG(bit);
@@ -98,12 +158,18 @@ bool cortex_m0_reset(CortexM0 *cpu, uint32_t vector_base)
 
 bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
 {
-    uint32_t sp, handler;
+    uint32_t sp, handler, exc_return;
     uint32_t frame[8];
     unsigned i;
     if (cpu == NULL || cpu->stopped || exception_number == 0u ||
         cpu->exception_depth >= 8u) return false;
-    sp = cpu->r[CORTEX_M0_SP] - 32u;
+    {
+        bool use_psp = thread_uses_psp(cpu);
+        save_visible_sp(cpu);
+        sp = (use_psp ? cpu->psp : cpu->msp) - 32u;
+        exc_return = cpu->exception_number != 0u
+            ? 0xFFFFFFF1u : use_psp ? 0xFFFFFFFDu : 0xFFFFFFF9u;
+    }
     frame[0] = cpu->r[0]; frame[1] = cpu->r[1];
     frame[2] = cpu->r[2]; frame[3] = cpu->r[3];
     frame[4] = cpu->r[12]; frame[5] = cpu->r[CORTEX_M0_LR];
@@ -116,10 +182,11 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
         cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
         return false;
     }
-    cpu->r[CORTEX_M0_SP] = sp;
-    cpu->msp = sp;
-    cpu->r[CORTEX_M0_LR] = cpu->exception_number == 0u
-        ? 0xFFFFFFF9u : 0xFFFFFFF1u;
+    if (cpu->exception_number == 0u && (cpu->control & 2u) != 0u)
+        cpu->psp = sp;
+    else cpu->msp = sp;
+    cpu->r[CORTEX_M0_SP] = cpu->msp;
+    cpu->r[CORTEX_M0_LR] = exc_return;
     cpu->r[CORTEX_M0_PC] = handler & ~1u;
     cpu->exception_number = exception_number;
     cpu->exception_stack[cpu->exception_depth++] = exception_number;
@@ -130,10 +197,12 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
 
 static bool exception_return(CortexM0 *cpu, uint32_t exc_return)
 {
-    uint32_t sp = cpu->r[CORTEX_M0_SP];
+    bool return_psp = exc_return == 0xFFFFFFFDu;
+    uint32_t sp = return_psp ? cpu->psp : cpu->msp;
     uint32_t frame[8];
     unsigned i;
-    if (exc_return != 0xFFFFFFF9u && exc_return != 0xFFFFFFF1u) return false;
+    if (exc_return != 0xFFFFFFF9u && exc_return != 0xFFFFFFF1u &&
+        exc_return != 0xFFFFFFFDu) return false;
     for (i = 0; i < 8u; ++i)
         if (!load(cpu, sp + i * 4u, 4, &frame[i])) return true;
     cpu->r[0] = frame[0]; cpu->r[1] = frame[1];
@@ -141,11 +210,13 @@ static bool exception_return(CortexM0 *cpu, uint32_t exc_return)
     cpu->r[12] = frame[4]; cpu->r[CORTEX_M0_LR] = frame[5];
     cpu->r[CORTEX_M0_PC] = frame[6] & ~1u;
     cpu->xpsr = frame[7] | FLAG(CORTEX_M0_XPSR_T);
-    cpu->r[CORTEX_M0_SP] = sp + 32u;
-    cpu->msp = cpu->r[CORTEX_M0_SP];
+    if (return_psp) cpu->psp = sp + 32u;
+    else cpu->msp = sp + 32u;
     if (cpu->exception_depth > 0u) --cpu->exception_depth;
     cpu->exception_number = cpu->exception_depth > 0u
         ? cpu->exception_stack[cpu->exception_depth - 1u] : 0u;
+    cpu->r[CORTEX_M0_SP] = cpu->exception_number != 0u
+        ? cpu->msp : ((cpu->control & 2u) != 0u ? cpu->psp : cpu->msp);
     return true;
 }
 
@@ -342,7 +413,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
     } else if ((op & 0xFF00u) == 0xB000u) {
         value = (op & 0x7Fu) << 2;
         cpu->r[CORTEX_M0_SP] += BIT(op, 7) ? (uint32_t)-value : value;
-        cpu->msp = cpu->r[CORTEX_M0_SP];
+        save_visible_sp(cpu);
     } else if ((op & 0xFF00u) == 0xB200u) {
         rd = op & 7u; rm = (op >> 3) & 7u;
         switch ((op >> 6) & 3u) {
@@ -382,7 +453,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             cpu->r[CORTEX_M0_SP] -= 4u;
             if (!store(cpu, cpu->r[CORTEX_M0_SP], 4, cpu->r[rn])) break;
         }
-        cpu->msp = cpu->r[CORTEX_M0_SP];
+        save_visible_sp(cpu);
     } else if ((op & 0xFE00u) == 0xBC00u) {
         unsigned mask = op & 0xFFu;
         for (rn = 0; rn < 8u; ++rn) if (mask & (1u << rn)) {
@@ -391,10 +462,12 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         }
         if (!cpu->stopped && BIT(op, 8)) {
             if (load(cpu, cpu->r[CORTEX_M0_SP], 4, &value)) {
-                cpu->r[CORTEX_M0_SP] += 4u; branch_exchange(cpu, value);
+                cpu->r[CORTEX_M0_SP] += 4u;
+                save_visible_sp(cpu);
+                branch_exchange(cpu, value);
             }
         }
-        cpu->msp = cpu->r[CORTEX_M0_SP];
+        save_visible_sp(cpu);
     } else if ((op & 0xF000u) == 0xC000u) {
         rn = (op >> 8) & 7u; address = cpu->r[rn];
         for (rd = 0; rd < 8u; ++rd) if (op & (1u << rd)) {
@@ -413,6 +486,33 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         else if ((op & 0x000Fu) != 0u) cpu->stopped = true, cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
     } else if ((op & 0xF800u) == 0xE000u) {
         cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0x7FFu, 11) << 1);
+    } else if (op == 0xF3EFu || (op & 0xFFF0u) == 0xF380u ||
+               op == 0xF3BFu) {
+        uint32_t second_raw;
+        uint16_t op2;
+        if (!load(cpu, pc + 2u, 2, &second_raw)) goto done;
+        op2 = (uint16_t)second_raw;
+        cpu->r[CORTEX_M0_PC] = pc + 4u;
+        out.halfwords = 2;
+        if (op == 0xF3EFu && (op2 & 0xF000u) == 0x8000u) {
+            rd = (op2 >> 8) & 15u;
+            if (rd == CORTEX_M0_PC) {
+                cpu->stopped = true;
+                cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            } else cpu->r[rd] = read_special(cpu, op2 & 0xFFu);
+        } else if ((op & 0xFFF0u) == 0xF380u &&
+                   (op2 & 0xFF00u) == 0x8800u) {
+            rn = op & 15u;
+            if (!write_special(cpu, op2 & 0xFFu, cpu->r[rn])) {
+                cpu->stopped = true;
+                cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            }
+        } else if (!(op == 0xF3BFu &&
+                     (op2 == 0x8F4Fu || op2 == 0x8F5Fu ||
+                      op2 == 0x8F6Fu))) {
+            cpu->stopped = true;
+            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        }
     } else if ((op & 0xF800u) == 0xF000u) {
         uint32_t second_raw;
         if (!load(cpu, pc + 2u, 2, &second_raw)) goto done;

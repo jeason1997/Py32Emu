@@ -79,10 +79,15 @@
   可恢复先前异常号；NVIC IABR 与 ICSR VECTACTIVE 可观察当前活动状态。
 - 新增真实 Cortex-M0+ 抢占固件，验证 IRQ5 抢占 IRQ6 后依次返回 IRQ6 与线程，
   同时修正 EXTI 源锁存，避免覆盖软件写入的 NVIC ISPR。
+- 实现 ARMv6-M `MRS/MSR` 对 APSR/xPSR/IPSR/MSP/PSP/PRIMASK/CONTROL 的基础
+  访问，以及 DSB/DMB/ISB；CONTROL.SPSEL 可在 Thread 模式切换可见栈。
+- 异常入口会按线程栈选择将硬件帧压入 MSP 或 PSP，Handler 固定使用 MSP；新增
+  `EXC_RETURN FD` 返回 PSP。真实双栈固件验证 PSP 入栈 32 字节、ISR 使用 MSP，
+  返回线程后 PSP 完整恢复。
 
 ### 正在进行
 
-- 补全 MRS/MSR、MSP/PSP/CONTROL 等特殊寄存器指令与线程栈选择。
+- 审计并补齐剩余 ARMv6-M Thumb 指令，建立指令级覆盖清单。
 
 ### 下一步
 
@@ -106,7 +111,7 @@ SRAM（`0x20000000`）。其他容量后缀将在获得对应器件目标后作�
 
 ## 尚未完成/未验证
 
-- CPU 已能执行基础固件，但 Thumb 指令集和特殊寄存器指令尚不完整。
+- CPU 已支持常用特殊寄存器和双栈异常，但 Thumb 指令覆盖仍需系统审计。
 - NVIC/SysTick 已支持优先级和嵌套异常；尾链、晚到中断和全部 SCB 语义尚未完成。
 - RCC/GPIO/EXTI/USART1/SPI1/I2C1/TIM1/TIM16/ADC1 已有首版；总线时序、错误注入与部分中断
   语义仍需完善。
@@ -127,6 +132,7 @@ official TIM1_ARR: PA5 low, ARR changed to 6399
 official ADC VREFINT polling: DR=1489, conversions=120
 official EXTI_IT: PB2 falling edge -> IRQ6 -> PA5 low
 NVIC preemption firmware: IRQ6 -> IRQ5 -> IRQ6 -> thread, breakpoint
+dual-stack firmware: Thread PSP -> IRQ on MSP -> EXC_RETURN FD -> PSP restored
 ```
 
 GCC 以 `-std=c11 -Wall -Wextra -Wpedantic` 编译，无警告。

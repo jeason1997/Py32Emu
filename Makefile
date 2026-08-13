@@ -66,6 +66,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_official_adc.sh
 	sh tests/integration/test_official_exti.sh
 	sh tests/integration/test_nvic_preemption.sh
+	sh tests/integration/test_dual_stack.sh
 
 test: unit-test integration-test
 
