@@ -57,10 +57,14 @@
   虚拟从机交换回调和 IRQ25 请求；同时加入 SYSCFG/EXTI 基础寄存器窗口。
 - 官方 `SPI_TwoBoards_FullDuplexMaster_IT` 中断主机例程已运行，完整捕获
   `01` 至 `0F`；其暴露的 `PUSH {lr}` 和寄存器形式 `BLX` CPU 缺陷已修复。
+- 实现 I2C1 基础模型：传统 CR/SR/DR 寄存器、START/STOP/地址阶段、主机收发、
+  RCC 门控、IRQ23 请求、发送/接收捕获和可替换虚拟从机回调接口。
+- 官方 `I2C_TwoBoard_CommunicationMaster_Polling` 已完成 15 字节发送与 15 字节
+  接收；例程所需的 `CPSID i`/`CPSIE i` 已加入 CPU 并纳入回归。
 
 ### 正在进行
 
-- 实现 TIM1 公共计数功能和 I2C 基础模型；继续补全特殊寄存器指令与中断优先级。
+- 实现 TIM1 公共计数功能和 ADC 基础模型；继续补全特殊寄存器指令与中断优先级。
 
 ### 下一步
 
@@ -86,8 +90,9 @@ SRAM（`0x20000000`）。其他容量后缀将在获得对应器件目标后作�
 
 - CPU 已能执行基础固件，但 Thumb 指令集和特殊寄存器指令尚不完整。
 - NVIC/SysTick 已有最小模型，但优先级、嵌套异常和全部 SCB 语义尚未完成。
-- RCC/GPIO/USART1 已有首版；USART 波特率时序与中断发送尚未完成。
-- 已完成官方 GPIO HAL 例程回归；其他官方外设例程尚未接入。
+- RCC/GPIO/USART1/SPI1/I2C1/TIM16 已有首版；总线时序、错误注入与部分中断
+  语义仍需完善。
+- 已接入官方 GPIO、USART、TIM16、SPI、I2C HAL 例程；TIM1、ADC 等尚未接入。
 
 ## 最近验证
 
@@ -98,6 +103,8 @@ foundation tests passed
 GPIOA: MODER=0xFFFFF7FF ODR=0x0020
 official GPIO_Toggle: 3000000 instructions, GPIOA ODR=0x0000
 official USART polling: TX = FF FF FF FF FF FF FF FF FF FF FF FF
+official SPI interrupt master: TX = 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
+official I2C polling master: TX/RX = 15/15 bytes
 ```
 
 GCC 以 `-std=c11 -Wall -Wextra -Wpedantic` 编译，无警告。

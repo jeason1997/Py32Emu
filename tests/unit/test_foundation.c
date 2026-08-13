@@ -14,6 +14,36 @@ static uint16_t spi_echo(void *context, uint16_t output, unsigned bits)
     return (uint16_t)(output ^ (bits == 8u ? 0xFFu : 0xFFFFu));
 }
 
+typedef struct { unsigned starts, writes, reads, stops; uint8_t last; } I2cTest;
+
+static bool i2c_start(void *context, uint8_t address, bool read)
+{
+    I2cTest *test = context;
+    ++test->starts;
+    test->last = (uint8_t)((address << 1) | read);
+    return address == 0x50u;
+}
+
+static bool i2c_write(void *context, uint8_t value)
+{
+    I2cTest *test = context;
+    ++test->writes; test->last = value;
+    return true;
+}
+
+static uint8_t i2c_read(void *context)
+{
+    I2cTest *test = context;
+    ++test->reads;
+    return (uint8_t)(0x40u + test->reads);
+}
+
+static void i2c_stop(void *context) { ++((I2cTest *)context)->stops; }
+
+static const Py32I2cTargetOps i2c_ops = {
+    i2c_start, i2c_write, i2c_read, i2c_stop
+};
+
 int main(void)
 {
     Py32Bus bus;
@@ -22,6 +52,7 @@ int main(void)
     uint32_t value;
     const Py32ChipDescription *chip;
     unsigned spi_calls = 0;
+    I2cTest i2c_test = {0};
     CortexM0 cpu;
     Py32Soc soc;
     Py32FirmwareImage image;
@@ -73,11 +104,13 @@ int main(void)
     program[16] = 0x0A; program[17] = 0x68; /* LDR r2,[r1,#0] */
     program[18] = 0x04; program[19] = 0xB4; /* PUSH {r2} */
     program[20] = 0x08; program[21] = 0xBC; /* POP {r3} */
-    program[22] = 0x00; program[23] = 0xBE; /* BKPT #0 */
-    program[24] = 0x00; program[25] = 0xB5; /* SysTick: PUSH {lr} */
-    program[26] = 0x2A; program[27] = 0x24; /* MOVS r4,#42 */
-    program[28] = 0x00; program[29] = 0xBD; /* POP {pc} / EXC_RETURN */
-    program[60] = 0x19; program[61] = 0x00;
+    program[22] = 0x72; program[23] = 0xB6; /* CPSID i */
+    program[24] = 0x62; program[25] = 0xB6; /* CPSIE i */
+    program[26] = 0x00; program[27] = 0xBE; /* BKPT #0 */
+    program[28] = 0x00; program[29] = 0xB5; /* SysTick: PUSH {lr} */
+    program[30] = 0x2A; program[31] = 0x24; /* MOVS r4,#42 */
+    program[32] = 0x00; program[33] = 0xBD; /* POP {pc} / EXC_RETURN */
+    program[60] = 0x1D; program[61] = 0x00;
     program[62] = 0x00; program[63] = 0x08; /* SysTick 向量 */
 
     py32_bus_init(&bus);
@@ -165,6 +198,17 @@ int main(void)
         assert(response == 0xCAu);
         assert(!py32_spi_irq_pending(&soc.spi1));
     }
+    assert(py32_bus_write(&soc.bus, 0x4002103Cu, 4, 1u << 21));
+    py32_i2c_connect(&soc.i2c1, &i2c_ops, &i2c_test);
+    assert(py32_bus_write(&soc.bus, 0x40005400u, 4, 1u | (1u << 8)));
+    assert(py32_bus_write(&soc.bus, 0x40005410u, 1, 0xA0u));
+    assert(py32_bus_read(&soc.bus, 0x40005414u, 4, &value));
+    assert(py32_bus_read(&soc.bus, 0x40005418u, 4, &value));
+    assert(py32_bus_write(&soc.bus, 0x40005410u, 1, 0x5Au));
+    assert(i2c_test.starts == 1u && i2c_test.writes == 1u);
+    assert(soc.i2c1.tx_count == 1u && soc.i2c1.tx[0] == 0x5Au);
+    assert(py32_bus_write(&soc.bus, 0x40005400u, 4, 1u | (1u << 9)));
+    assert(i2c_test.stops == 1u);
 
     assert(py32_soc_reset(&soc, error, sizeof(error)));
     assert(py32_bus_write(&soc.bus, 0xE000E014u, 4, 1u));

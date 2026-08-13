@@ -69,6 +69,7 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_usart_reset(&soc->usart1, &soc->rcc.apbenr2, 1u << 14);
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
+    py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
     if (!py32_bus_add_memory(&soc->bus, "flash-alias", 0x00000000u,
                              soc->flash, description->flash_size, true) ||
@@ -103,7 +104,9 @@ bool py32_soc_configure(Py32Soc *soc,
                              py32_timer_read, py32_timer_write,
                              &soc->tim16) ||
         !py32_bus_add_device(&soc->bus, "spi1", 0x40013000u, 0x10u,
-                             py32_spi_read, py32_spi_write, &soc->spi1)) {
+                             py32_spi_read, py32_spi_write, &soc->spi1) ||
+        !py32_bus_add_device(&soc->bus, "i2c1", 0x40005400u, 0x24u,
+                             py32_i2c_read, py32_i2c_write, &soc->i2c1)) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
@@ -138,6 +141,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_usart_reset(&soc->usart1, &soc->rcc.apbenr2, 1u << 14);
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
+    py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz);
     soc->bus.faulted = false;
@@ -162,6 +166,8 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             soc->system.nvic_pending |= 1u << 21;
         if (py32_spi_irq_pending(&soc->spi1))
             soc->system.nvic_pending |= 1u << 25;
+        if (py32_i2c_irq_pending(&soc->i2c1))
+            soc->system.nvic_pending |= 1u << 23;
         return result;
     }
 }

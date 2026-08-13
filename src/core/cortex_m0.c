@@ -368,6 +368,8 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
             break;
         }
+    } else if ((op & 0xFFE8u) == 0xB660u && BIT(op, 1)) {
+        cpu->primask = BIT(op, 4) != 0u; /* CPSIE i / CPSID i */
     } else if ((op & 0xFE00u) == 0xB400u) {
         unsigned mask = op & 0xFFu;
         if (BIT(op, 8)) mask |= 1u << CORTEX_M0_LR;

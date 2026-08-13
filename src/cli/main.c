@@ -104,6 +104,18 @@ int main(int argc, char **argv)
             printf(" %02X", soc.spi1.tx[n]);
         putchar('\n');
     }
+    if (soc.i2c1.tx_count > 0u) {
+        printf("I2C1 TX (%zu):", soc.i2c1.tx_count);
+        for (i = 0; i < (int)soc.i2c1.tx_count; ++i)
+            printf(" %02X", soc.i2c1.tx[i]);
+        putchar('\n');
+    }
+    if (soc.i2c1.rx_count > 0u) {
+        printf("I2C1 RX (%zu):", soc.i2c1.rx_count);
+        for (i = 0; i < (int)soc.i2c1.rx_count; ++i)
+            printf(" %02X", soc.i2c1.rx[i]);
+        putchar('\n');
+    }
     py32_soc_destroy(&soc);
     py32_firmware_image_free(&image);
     return 0;
