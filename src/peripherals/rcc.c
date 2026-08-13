@@ -42,6 +42,13 @@ bool py32_rcc_write(void *context, uint32_t offset, unsigned size,
     uint32_t *reg;
     if (size != 4u || (offset & 3u) != 0u) return false;
     if (offset == 0x20u) { rcc->cifr &= ~value; return true; }
+    if (offset == 0x60u) {
+        uint32_t reset_flags = rcc->csr & 0xFE000000u;
+        rcc->csr = value & 1u;
+        if ((value & 1u) != 0u) rcc->csr |= 1u << 1;
+        if ((value & (1u << 23)) == 0u) rcc->csr |= reset_flags;
+        return true;
+    }
     reg = register_at(rcc, offset);
     if (reg == NULL) return false;
     *reg = value;
@@ -54,4 +61,3 @@ bool py32_rcc_write(void *context, uint32_t offset, unsigned size,
     }
     return true;
 }
-

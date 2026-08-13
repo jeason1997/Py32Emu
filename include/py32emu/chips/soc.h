@@ -15,6 +15,7 @@
 #include "py32emu/peripherals/adc.h"
 #include "py32emu/peripherals/exti.h"
 #include "py32emu/peripherals/crc.h"
+#include "py32emu/peripherals/iwdg.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,6 +35,7 @@ typedef struct {
     Py32Adc adc1;
     Py32Exti exti;
     Py32Crc crc;
+    Py32Iwdg iwdg;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
@@ -41,6 +43,7 @@ typedef struct {
     uint8_t syscfg_registers[0x88];
     uint32_t adc_common_ccr;
     uint32_t exti_irq_level;
+    uint64_t reset_count;
 } Py32Soc;
 
 void py32_soc_init(Py32Soc *soc);

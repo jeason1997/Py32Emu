@@ -113,9 +113,14 @@
 - 原版官方 `CRC_Computing_Results` 已在模拟器中处理 114 个 32 位字，得到手册例程期望的
   `0x379E9F06`，并进入板载 LED 低有效的成功分支。
 
+- 新增 IWDG 模型：LSI 32768 Hz、`KR` 启动/解锁/喂狗键、PR 4-256 分频、12 位 RLR、
+  写保护和按 CPU 周期换算的独立计数器。
+- IWDG 超时现在请求完整 SoC 复位并设置 RCC `IWDGRSTF`；自定义真实固件已验证第二次启动
+  观察到复位标志，官方 `IWDG_RESET` 则运行超过一次超时窗口并在 900 ms 处正确喂狗、无复位。
+
 ### 正在进行
 
-- 继续接入 IWDG、LPTIM、COMP、FLASH 擦写等官方 SDK 示例。
+- 继续接入 LPTIM、COMP、FLASH 擦写等官方 SDK 示例。
 
 ### 下一步
 

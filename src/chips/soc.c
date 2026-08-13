@@ -80,6 +80,7 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
     py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
+    py32_iwdg_reset(&soc->iwdg);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
     if (!py32_bus_add_memory(&soc->bus, "flash-alias", 0x00000000u,
                              soc->flash, description->flash_size, true) ||
@@ -138,7 +139,10 @@ bool py32_soc_configure(Py32Soc *soc,
                              py32_adc_read, py32_adc_write, &soc->adc1)) ||
         (has(soc, PY32_PERIPHERAL_CRC) &&
          !py32_bus_add_device(&soc->bus, "crc", 0x40023000u, 0x0Cu,
-                             py32_crc_read, py32_crc_write, &soc->crc))) {
+                             py32_crc_read, py32_crc_write, &soc->crc)) ||
+        (has(soc, PY32_PERIPHERAL_IWDG) &&
+         !py32_bus_add_device(&soc->bus, "iwdg", 0x40003000u, 0x10u,
+                             py32_iwdg_read, py32_iwdg_write, &soc->iwdg))) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
@@ -180,6 +184,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
     py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
+    py32_iwdg_reset(&soc->iwdg);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz,
                       soc->description->external_irq_count);
@@ -201,6 +206,18 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
     {
         CortexM0StepResult result = cortex_m0_step(&soc->cpu);
         py32_system_tick(&soc->system, result.cycles);
+        if (has(soc, PY32_PERIPHERAL_IWDG) &&
+            py32_iwdg_tick(&soc->iwdg, result.cycles,
+                           soc->description->reset_clock_hz,
+                           (soc->rcc.csr & (1u << 1)) != 0u)) {
+            char error[1];
+            uint64_t reset_count = soc->reset_count + 1u;
+            if (py32_soc_reset(soc, error, sizeof(error))) {
+                soc->reset_count = reset_count;
+                soc->rcc.csr |= 1u << 29;
+            }
+            return result;
+        }
         if (has(soc, PY32_PERIPHERAL_TIM1) &&
             py32_timer_tick(&soc->tim1, result.cycles))
             soc->system.nvic_pending |= 1u << 13;

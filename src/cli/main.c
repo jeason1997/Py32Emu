@@ -113,6 +113,9 @@ int main(int argc, char **argv)
                            : "step-limit");
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",
            soc.gpioa.moder, soc.gpioa.odr);
+    if (soc.reset_count != 0u)
+        printf("RESET: IWDG=%llu CSR=0x%08X\n",
+               (unsigned long long)soc.reset_count, soc.rcc.csr);
     if ((soc.rcc.apbenr2 & (1u << 11)) != 0u)
         printf("TIM1: CNT=%u PSC=%u ARR=%u SR=0x%X\n",
                (unsigned)soc.tim1.reg[9], (unsigned)soc.tim1.reg[10],
