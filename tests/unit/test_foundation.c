@@ -195,6 +195,27 @@ int main(void)
     assert(py32_bus_write(&soc.bus, 0x40023004u, 1u, 0xA5u));
     assert(py32_bus_read(&soc.bus, 0x40023004u, 4u, &value));
     assert(value == 0xA5u);
+    /* FLASH 必须先按官方双密钥序列解锁，页擦除和编程只能令位从 1 变 0。 */
+    value = soc.flash[0x2000u];
+    assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0u));
+    assert(soc.flash[0x2000u] == (uint8_t)value);
+    assert(py32_bus_read(&soc.bus, 0x40022010u, 4u, &value));
+    assert((value & (1u << 4)) != 0u);
+    assert(py32_bus_write(&soc.bus, 0x40022008u, 4u, 0x45670123u));
+    assert(py32_bus_write(&soc.bus, 0x40022008u, 4u, 0xCDEF89ABu));
+    assert(py32_bus_read(&soc.bus, 0x40022014u, 4u, &value));
+    assert((value & (1u << 31)) == 0u);
+    assert(py32_bus_write(&soc.bus, 0x40022014u, 4u, 1u << 1));
+    assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0xFFu));
+    assert(soc.flash[0x2000u] == 0xFFu &&
+           soc.flash[0x207Fu] == 0xFFu);
+    assert(py32_bus_write(&soc.bus, 0x40022014u, 4u, 1u));
+    assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0x12345678u));
+    assert(py32_bus_read(&soc.bus, 0x08002000u, 4u, &value));
+    assert(value == 0x12345678u);
+    assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0xFFFFFFFFu));
+    assert(py32_bus_read(&soc.bus, 0x08002000u, 4u, &value));
+    assert(value == 0x12345678u);
     soc.cpu.r[1] = chip->sram_base;
     while (!soc.cpu.stopped) py32_soc_step(&soc);
     assert(soc.cpu.stop_reason == CORTEX_M0_STOP_BKPT);

@@ -58,7 +58,6 @@ bool py32_soc_configure(Py32Soc *soc,
     /* 擦除态 Flash 为全 1，固件不必覆盖完整器件容量。 */
     memset(soc->flash, 0xFF, description->flash_size);
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
-    memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
@@ -81,19 +80,24 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
     py32_iwdg_reset(&soc->iwdg);
+    py32_flash_reset(&soc->flash_controller, soc->flash,
+                     description->flash_size, 128u);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
-    if (!py32_bus_add_memory(&soc->bus, "flash-alias", 0x00000000u,
-                             soc->flash, description->flash_size, true) ||
-        !py32_bus_add_memory(&soc->bus, "flash", description->flash_base,
-                             soc->flash, description->flash_size, true) ||
+    if (!py32_bus_add_device(&soc->bus, "flash-alias", 0x00000000u,
+                             description->flash_size, py32_flash_memory_read,
+                             py32_flash_memory_write, &soc->flash_controller) ||
+        !py32_bus_add_device(&soc->bus, "flash", description->flash_base,
+                             description->flash_size, py32_flash_memory_read,
+                             py32_flash_memory_write, &soc->flash_controller) ||
         !py32_bus_add_memory(&soc->bus, "sram", description->sram_base,
                              soc->sram, description->sram_size, false) ||
         !py32_bus_add_memory(&soc->bus, "system-memory", 0x1FFF0000u,
                              soc->system_memory,
                              sizeof(soc->system_memory), true) ||
-        !py32_bus_add_memory(&soc->bus, "flash-registers", 0x40022000u,
-                             soc->flash_registers,
-                             sizeof(soc->flash_registers), false) ||
+        !py32_bus_add_device(&soc->bus, "flash-controller", 0x40022000u,
+                             0x124u, py32_flash_control_read,
+                             py32_flash_control_write,
+                             &soc->flash_controller) ||
         (has(soc, PY32_PERIPHERAL_EXTI) &&
          !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
@@ -168,7 +172,6 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
         return false;
     }
     memset(soc->sram, 0, soc->description->sram_size);
-    memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
@@ -185,6 +188,8 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
     py32_iwdg_reset(&soc->iwdg);
+    py32_flash_reset(&soc->flash_controller, soc->flash,
+                     soc->description->flash_size, 128u);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz,
                       soc->description->external_irq_count);

@@ -116,6 +116,17 @@ int main(int argc, char **argv)
     if (soc.reset_count != 0u)
         printf("RESET: IWDG=%llu CSR=0x%08X\n",
                (unsigned long long)soc.reset_count, soc.rcc.csr);
+    if (soc.flash_controller.erase_count != 0u ||
+        soc.flash_controller.program_word_count != 0u) {
+        uint32_t flash_word = 0u;
+        py32_flash_memory_read(&soc.flash_controller,
+                               0x2000u, 4u, &flash_word);
+        printf("FLASH: erase=%llu program-words=%llu last=0x%08X "
+               "@0x08002000=0x%08X\n",
+               (unsigned long long)soc.flash_controller.erase_count,
+               (unsigned long long)soc.flash_controller.program_word_count,
+               soc.flash_controller.last_address, flash_word);
+    }
     if ((soc.rcc.apbenr2 & (1u << 11)) != 0u)
         printf("TIM1: CNT=%u PSC=%u ARR=%u SR=0x%X\n",
                (unsigned)soc.tim1.reg[9], (unsigned)soc.tim1.reg[10],

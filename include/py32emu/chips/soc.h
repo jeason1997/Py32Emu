@@ -16,6 +16,7 @@
 #include "py32emu/peripherals/exti.h"
 #include "py32emu/peripherals/crc.h"
 #include "py32emu/peripherals/iwdg.h"
+#include "py32emu/peripherals/flash.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -36,10 +37,10 @@ typedef struct {
     Py32Exti exti;
     Py32Crc crc;
     Py32Iwdg iwdg;
+    Py32Flash flash_controller;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
-    uint8_t flash_registers[0x124];
     uint8_t syscfg_registers[0x88];
     uint32_t adc_common_ccr;
     uint32_t exti_irq_level;
