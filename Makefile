@@ -15,6 +15,7 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
 	src/peripherals/timer.c \
 	src/peripherals/spi.c \
 	src/peripherals/i2c.c \
+	src/peripherals/adc.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
 TARGET_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
@@ -29,6 +30,7 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/usart.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/timer.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/spi.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/i2c.o
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/adc.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 
 .PHONY: all test unit-test integration-test clean
@@ -59,6 +61,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_hello_world.sh
 	sh tests/integration/test_official_spi.sh
 	sh tests/integration/test_official_i2c.sh
+	sh tests/integration/test_official_adc.sh
 
 test: unit-test integration-test
 

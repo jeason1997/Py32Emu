@@ -94,6 +94,10 @@ int main(int argc, char **argv)
         printf("TIM1: CNT=%u PSC=%u ARR=%u SR=0x%X\n",
                (unsigned)soc.tim1.reg[9], (unsigned)soc.tim1.reg[10],
                (unsigned)soc.tim1.reg[11], (unsigned)soc.tim1.reg[4]);
+    if ((soc.rcc.apbenr2 & (1u << 20)) != 0u)
+        printf("ADC1: DR=%u CHSELR=0x%X conversions=%llu\n",
+               (unsigned)soc.adc1.dr, (unsigned)soc.adc1.chselr,
+               (unsigned long long)soc.adc1.conversion_count);
     if (soc.usart1.tx_count > 0u) {
         size_t n;
         printf("USART1 TX (%zu):", soc.usart1.tx_count);

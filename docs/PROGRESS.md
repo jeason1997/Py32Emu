@@ -65,10 +65,14 @@
   计数、预分频、自动重装和更新标志语义。
 - 官方 `TIM1_ARR` 已完成更新中断与 PA5 翻转，并在第三次回调中把 ARR 从
   1599 动态修改为 6399；CLI 可观察 TIM1 的 CNT/PSC/ARR/SR。
+- 实现 ADC1 基础模型：13 路宿主可注入采样值、分辨率/对齐、通道选择、校准、
+  EOC/EOS/OVR、模拟看门狗、IRQ12 和 ADC common CCR 寄存器窗口。
+- 官方 `ADC_ContinuousConversion_TriggerSW_Vrefint` 已完成 HAL 校准、软件启动、
+  轮询和取值闭环；默认 VREFINT=1489，十万条指令完成 120 次转换。
 
 ### 正在进行
 
-- 实现 ADC 基础模型；继续补全特殊寄存器指令与中断优先级。
+- 实现 EXTI 边沿/软件触发模型；继续补全特殊寄存器指令与中断优先级。
 
 ### 下一步
 
@@ -94,9 +98,9 @@ SRAM（`0x20000000`）。其他容量后缀将在获得对应器件目标后作�
 
 - CPU 已能执行基础固件，但 Thumb 指令集和特殊寄存器指令尚不完整。
 - NVIC/SysTick 已有最小模型，但优先级、嵌套异常和全部 SCB 语义尚未完成。
-- RCC/GPIO/USART1/SPI1/I2C1/TIM1/TIM16 已有首版；总线时序、错误注入与部分中断
+- RCC/GPIO/USART1/SPI1/I2C1/TIM1/TIM16/ADC1 已有首版；总线时序、错误注入与部分中断
   语义仍需完善。
-- 已接入官方 GPIO、USART、TIM1、TIM16、SPI、I2C HAL 例程；ADC 等尚未接入。
+- 已接入官方 GPIO、USART、TIM1、TIM16、SPI、I2C、ADC HAL 例程；EXTI 等尚未接入。
 
 ## 最近验证
 
@@ -110,6 +114,7 @@ official USART polling: TX = FF FF FF FF FF FF FF FF FF FF FF FF
 official SPI interrupt master: TX = 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
 official I2C polling master: TX/RX = 15/15 bytes
 official TIM1_ARR: PA5 low, ARR changed to 6399
+official ADC VREFINT polling: DR=1489, conversions=120
 ```
 
 GCC 以 `-std=c11 -Wall -Wextra -Wpedantic` 编译，无警告。

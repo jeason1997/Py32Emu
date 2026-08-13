@@ -215,6 +215,16 @@ int main(void)
     assert(soc.i2c1.tx_count == 1u && soc.i2c1.tx[0] == 0x5Au);
     assert(py32_bus_write(&soc.bus, 0x40005400u, 4, 1u | (1u << 9)));
     assert(i2c_test.stops == 1u);
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4,
+                          soc.rcc.apbenr2 | (1u << 20)));
+    py32_adc_set_channel(&soc.adc1, 2u, 0x456u);
+    assert(py32_bus_write(&soc.bus, 0x40012428u, 4, 1u << 2));
+    assert(py32_bus_write(&soc.bus, 0x40012404u, 4, 1u << 2));
+    assert(py32_bus_write(&soc.bus, 0x40012408u, 4, 1u | (1u << 2)));
+    assert(soc.adc1.conversion_count == 1u && soc.adc1.dr == 0x456u);
+    assert(py32_adc_irq_pending(&soc.adc1));
+    assert(py32_bus_read(&soc.bus, 0x40012440u, 4, &value));
+    assert(value == 0x456u && !py32_adc_irq_pending(&soc.adc1));
 
     assert(py32_soc_reset(&soc, error, sizeof(error)));
     assert(py32_bus_write(&soc.bus, 0xE000E014u, 4, 1u));

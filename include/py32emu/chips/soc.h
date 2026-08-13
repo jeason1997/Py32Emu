@@ -12,6 +12,7 @@
 #include "py32emu/peripherals/timer.h"
 #include "py32emu/peripherals/spi.h"
 #include "py32emu/peripherals/i2c.h"
+#include "py32emu/peripherals/adc.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -28,12 +29,14 @@ typedef struct {
     Py32Timer tim1, tim16;
     Py32Spi spi1;
     Py32I2c i2c1;
+    Py32Adc adc1;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
     uint8_t flash_registers[0x124];
     uint8_t syscfg_registers[0x88];
     uint8_t exti_registers[0x88];
+    uint32_t adc_common_ccr;
 } Py32Soc;
 
 void py32_soc_init(Py32Soc *soc);

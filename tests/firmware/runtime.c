@@ -13,3 +13,16 @@ void *memcpy(void *destination, const void *source, size_t size)
     while (size-- > 0u) *out++ = *in++;
     return destination;
 }
+
+/* Freestanding SDK regression images do not link a hosted stdio library. */
+int puts(const char *text)
+{
+    (void)text;
+    return 0;
+}
+
+int printf(const char *format, ...)
+{
+    (void)format;
+    return 0;
+}

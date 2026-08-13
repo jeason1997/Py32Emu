@@ -56,6 +56,7 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->exti_registers, 0, sizeof(soc->exti_registers));
+    soc->adc_common_ccr = 0u;
     /* 工厂校准区中固件常用的 Flash 容量字段，单位 KiB。 */
     soc->system_memory[0xFFCu] = (uint8_t)(description->flash_size / 1024u);
     memcpy(soc->flash + (firmware->load_address - description->flash_base),
@@ -71,6 +72,7 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
+    py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
     if (!py32_bus_add_memory(&soc->bus, "flash-alias", 0x00000000u,
                              soc->flash, description->flash_size, true) ||
@@ -90,6 +92,9 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "exti", 0x40021800u,
                              soc->exti_registers,
                              sizeof(soc->exti_registers), false) ||
+        !py32_bus_add_memory(&soc->bus, "adc-common", 0x40012708u,
+                             (uint8_t *)&soc->adc_common_ccr,
+                             sizeof(soc->adc_common_ccr), false) ||
         !py32_bus_add_device(&soc->bus, "rcc", 0x40021000u, 0x64u,
                              py32_rcc_read, py32_rcc_write, &soc->rcc) ||
         !py32_bus_add_device(&soc->bus, "gpioa", 0x50000000u, 0x2Cu,
@@ -110,7 +115,9 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_device(&soc->bus, "spi1", 0x40013000u, 0x10u,
                              py32_spi_read, py32_spi_write, &soc->spi1) ||
         !py32_bus_add_device(&soc->bus, "i2c1", 0x40005400u, 0x24u,
-                             py32_i2c_read, py32_i2c_write, &soc->i2c1)) {
+                             py32_i2c_read, py32_i2c_write, &soc->i2c1) ||
+        !py32_bus_add_device(&soc->bus, "adc1", 0x40012400u, 0x48u,
+                             py32_adc_read, py32_adc_write, &soc->adc1)) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
@@ -138,6 +145,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->exti_registers, 0, sizeof(soc->exti_registers));
+    soc->adc_common_ccr = 0u;
     py32_rcc_reset(&soc->rcc);
     py32_gpio_reset(&soc->gpioa, &soc->rcc.iopenr, 1u << 0);
     py32_gpio_reset(&soc->gpiob, &soc->rcc.iopenr, 1u << 1);
@@ -147,6 +155,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
+    py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz);
     soc->bus.faulted = false;
@@ -175,6 +184,8 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             soc->system.nvic_pending |= 1u << 25;
         if (py32_i2c_irq_pending(&soc->i2c1))
             soc->system.nvic_pending |= 1u << 23;
+        if (py32_adc_irq_pending(&soc->adc1))
+            soc->system.nvic_pending |= 1u << 12;
         return result;
     }
 }
