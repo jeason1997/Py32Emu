@@ -107,12 +107,34 @@ static int32_t sign_extend(uint32_t value, unsigned bits)
     return (int32_t)((value ^ sign) - sign);
 }
 
+static void raise_hardfault(CortexM0 *cpu)
+{
+    if (cpu == NULL) return;
+    if (cpu->fault_entry || cpu->exception_number == 3u) {
+        cpu->stopped = true;
+        cpu->stop_reason = CORTEX_M0_STOP_BUS_FAULT;
+        return;
+    }
+    cpu->fault_entry = true;
+    cpu->stopped = false;
+    cpu->stop_reason = CORTEX_M0_STOP_NONE;
+    if (!cortex_m0_enter_exception(cpu, 3u)) {
+        cpu->stopped = true;
+        cpu->stop_reason = CORTEX_M0_STOP_BUS_FAULT;
+    }
+    cpu->fault_entry = false;
+}
+
+static void raise_undefined(CortexM0 *cpu)
+{
+    raise_hardfault(cpu);
+}
+
 static bool load(CortexM0 *cpu, uint32_t address, unsigned size,
                  uint32_t *value)
 {
     if (py32_bus_read(cpu->bus, address, size, value)) return true;
-    cpu->stopped = true;
-    cpu->stop_reason = CORTEX_M0_STOP_BUS_FAULT;
+    raise_hardfault(cpu);
     return false;
 }
 
@@ -120,8 +142,7 @@ static bool store(CortexM0 *cpu, uint32_t address, unsigned size,
                   uint32_t value)
 {
     if (py32_bus_write(cpu->bus, address, size, value)) return true;
-    cpu->stopped = true;
-    cpu->stop_reason = CORTEX_M0_STOP_BUS_FAULT;
+    raise_hardfault(cpu);
     return false;
 }
 
@@ -179,7 +200,12 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
     if (!load(cpu, cpu->vector_table + exception_number * 4u, 4, &handler))
         return false;
     if ((handler & 1u) == 0u) {
-        cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        if (exception_number == 3u || cpu->fault_entry) {
+            cpu->stopped = true;
+            cpu->stop_reason = CORTEX_M0_STOP_BUS_FAULT;
+        } else {
+            raise_hardfault(cpu);
+        }
         return false;
     }
     if (cpu->exception_number == 0u && (cpu->control & 2u) != 0u)
@@ -299,14 +325,12 @@ static void branch_exchange(CortexM0 *cpu, uint32_t address)
     if ((address & 0xFFFFFFF0u) == 0xFFFFFFF0u &&
         cpu->exception_number != 0u) {
         if (!exception_return(cpu, address)) {
-            cpu->stopped = true;
-            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            raise_undefined(cpu);
         }
         return;
     }
     if ((address & 1u) == 0u) {
-        cpu->stopped = true;
-        cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        raise_undefined(cpu);
     } else {
         cpu->r[CORTEX_M0_PC] = address & ~1u;
     }
@@ -378,7 +402,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         case 13: cpu->r[rd] = a * b; set_nz(cpu, cpu->r[rd]); out.cycles = 32; break;
         case 14: cpu->r[rd] = a & ~b; set_nz(cpu, cpu->r[rd]); break;
         case 15: cpu->r[rd] = ~b; set_nz(cpu, cpu->r[rd]); break;
-        default: cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED; break;
+        default: raise_undefined(cpu); break;
         }
     } else if ((op & 0xFC00u) == 0x4400u) {
         rd = (op & 7u) | ((op >> 4) & 8u); rm = (op >> 3) & 15u;
@@ -458,8 +482,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             cpu->r[rd] = (uint32_t)(int32_t)(int16_t)value;
             break;
         default:
-            cpu->stopped = true;
-            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            raise_undefined(cpu);
             break;
         }
     } else if ((op & 0xFFE8u) == 0xB660u && BIT(op, 1)) {
@@ -501,8 +524,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_BKPT;
     } else if ((op & 0xFF00u) == 0xBF00u) {
         if ((op & 0x000Fu) != 0u) {
-            cpu->stopped = true;
-            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            raise_undefined(cpu);
         } else if ((op & 0x00F0u) == 0x20u) {
             if (cpu->event_register) cpu->event_register = false;
             else cpu->waiting = true;
@@ -511,9 +533,9 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             cpu->event_register = true;
         }
     } else if ((op & 0xFF00u) == 0xDF00u) {
-        if (!cortex_m0_enter_exception(cpu, 11u) && !cpu->stopped) {
-            cpu->stopped = true;
-            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        if (!cortex_m0_enter_exception(cpu, 11u) && !cpu->stopped &&
+            cpu->exception_number != 3u) {
+            raise_undefined(cpu);
         }
     } else if ((op & 0xF800u) == 0xE000u) {
         cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0x7FFu, 11) << 1);
@@ -528,27 +550,24 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         if (op == 0xF3EFu && (op2 & 0xF000u) == 0x8000u) {
             rd = (op2 >> 8) & 15u;
             if (rd == CORTEX_M0_PC) {
-                cpu->stopped = true;
-                cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+                raise_undefined(cpu);
             } else cpu->r[rd] = read_special(cpu, op2 & 0xFFu);
         } else if ((op & 0xFFF0u) == 0xF380u &&
                    (op2 & 0xFF00u) == 0x8800u) {
             rn = op & 15u;
             if (!write_special(cpu, op2 & 0xFFu, cpu->r[rn])) {
-                cpu->stopped = true;
-                cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+                raise_undefined(cpu);
             }
         } else if (!(op == 0xF3BFu &&
                      (op2 == 0x8F4Fu || op2 == 0x8F5Fu ||
                       op2 == 0x8F6Fu))) {
-            cpu->stopped = true;
-            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            raise_undefined(cpu);
         }
     } else if ((op & 0xF800u) == 0xF000u) {
         uint32_t second_raw;
         if (!load(cpu, pc + 2u, 2, &second_raw)) goto done;
         if (((uint16_t)second_raw & 0xD000u) != 0xD000u) {
-            cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+            raise_undefined(cpu);
         } else {
             uint16_t op2 = (uint16_t)second_raw;
             unsigned s = BIT(op, 10), j1 = BIT(op2, 13), j2 = BIT(op2, 11);
@@ -560,8 +579,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             out.halfwords = 2; out.cycles = 3;
         }
     } else {
-        cpu->stopped = true;
-        cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        raise_undefined(cpu);
     }
 
 done:

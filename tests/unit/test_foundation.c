@@ -69,10 +69,12 @@ int main(void)
     assert(py32_bus_read(&bus, 0x08000000u, 4, &value));
     assert(value == 0x12345678u);
     assert(!py32_bus_write(&bus, 0x08000000u, 1, 0));
+    assert(bus.faulted && bus.fault_address == 0x08000000u);
     assert(py32_bus_write(&bus, 0x20000004u, 4, 0xAABBCCDDu));
     assert(py32_bus_read(&bus, 0x20000004u, 4, &value));
     assert(value == 0xAABBCCDDu);
     assert(!py32_bus_read(&bus, 0x20000001u, 2, &value));
+    assert(bus.faulted && bus.fault_address == 0x20000001u);
 
     chip = py32_chip_by_name("py32f002a");
     assert(chip != NULL);

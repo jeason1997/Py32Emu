@@ -68,6 +68,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_nvic_preemption.sh
 	sh tests/integration/test_dual_stack.sh
 	sh tests/integration/test_thumb_control_flow.sh
+	sh tests/integration/test_hardfault_paths.sh
 
 test: unit-test integration-test
 

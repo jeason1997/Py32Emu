@@ -41,6 +41,7 @@ typedef struct {
     bool primask;
     bool waiting;
     bool event_register;
+    bool fault_entry;
     bool stopped;
     CortexM0StopReason stop_reason;
     uint16_t last_instruction;

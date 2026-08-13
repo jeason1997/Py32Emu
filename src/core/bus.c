@@ -68,13 +68,15 @@ bool py32_bus_read(Py32Bus *bus, uint32_t address, unsigned size,
     uint32_t offset;
     unsigned i;
 
-    if (bus == NULL || value == NULL || !valid_size(size) ||
-        (address & (size - 1u)) != 0u) return false;
+    if (bus == NULL || value == NULL || !valid_size(size)) return false;
+    if ((address & (size - 1u)) != 0u) goto fault;
     region = find_region(bus, address, size);
     if (region == NULL) goto fault;
     offset = address - region->base;
-    if (region->read != NULL)
-        return region->read(region->context, offset, size, value);
+    if (region->read != NULL) {
+        if (region->read(region->context, offset, size, value)) return true;
+        goto fault;
+    }
     if (region->memory == NULL) goto fault;
     *value = 0;
     for (i = 0; i < size; ++i)
@@ -94,13 +96,15 @@ bool py32_bus_write(Py32Bus *bus, uint32_t address, unsigned size,
     uint32_t offset;
     unsigned i;
 
-    if (bus == NULL || !valid_size(size) ||
-        (address & (size - 1u)) != 0u) return false;
+    if (bus == NULL || !valid_size(size)) return false;
+    if ((address & (size - 1u)) != 0u) goto fault;
     region = find_region(bus, address, size);
     if (region == NULL) goto fault;
     offset = address - region->base;
-    if (region->write != NULL)
-        return region->write(region->context, offset, size, value);
+    if (region->write != NULL) {
+        if (region->write(region->context, offset, size, value)) return true;
+        goto fault;
+    }
     if (region->memory == NULL || region->read_only) goto fault;
     for (i = 0; i < size; ++i)
         region->memory[offset + i] = (uint8_t)(value >> (8u * i));
@@ -111,4 +115,3 @@ fault:
     bus->fault_address = address;
     return false;
 }
-
