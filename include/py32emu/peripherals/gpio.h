@@ -21,8 +21,8 @@ bool py32_gpio_read(void *context, uint32_t offset, unsigned size,
 bool py32_gpio_write(void *context, uint32_t offset, unsigned size,
                      uint32_t value);
 void py32_gpio_set_input(Py32Gpio *gpio, unsigned pin, bool driven, bool high);
+uint32_t py32_gpio_input_data(const Py32Gpio *gpio);
 bool py32_gpio_pin_output(const Py32Gpio *gpio, unsigned pin,
                           bool *driven, bool *high);
 
 #endif
-

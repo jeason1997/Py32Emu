@@ -13,6 +13,7 @@
 #include "py32emu/peripherals/spi.h"
 #include "py32emu/peripherals/i2c.h"
 #include "py32emu/peripherals/adc.h"
+#include "py32emu/peripherals/exti.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -30,12 +31,12 @@ typedef struct {
     Py32Spi spi1;
     Py32I2c i2c1;
     Py32Adc adc1;
+    Py32Exti exti;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
     uint8_t flash_registers[0x124];
     uint8_t syscfg_registers[0x88];
-    uint8_t exti_registers[0x88];
     uint32_t adc_common_ccr;
 } Py32Soc;
 
@@ -47,5 +48,7 @@ bool py32_soc_configure(Py32Soc *soc,
                         char *error, size_t error_size);
 bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size);
 CortexM0StepResult py32_soc_step(Py32Soc *soc);
+void py32_soc_set_gpio_input(Py32Soc *soc, unsigned port, unsigned pin,
+                             bool driven, bool high);
 
 #endif

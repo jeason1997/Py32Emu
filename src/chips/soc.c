@@ -55,7 +55,7 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
     memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
-    memset(soc->exti_registers, 0, sizeof(soc->exti_registers));
+    py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     /* 工厂校准区中固件常用的 Flash 容量字段，单位 KiB。 */
     soc->system_memory[0xFFCu] = (uint8_t)(description->flash_size / 1024u);
@@ -89,9 +89,8 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
                              sizeof(soc->syscfg_registers), false) ||
-        !py32_bus_add_memory(&soc->bus, "exti", 0x40021800u,
-                             soc->exti_registers,
-                             sizeof(soc->exti_registers), false) ||
+        !py32_bus_add_device(&soc->bus, "exti", 0x40021800u, 0x88u,
+                             py32_exti_read, py32_exti_write, &soc->exti) ||
         !py32_bus_add_memory(&soc->bus, "adc-common", 0x40012708u,
                              (uint8_t *)&soc->adc_common_ccr,
                              sizeof(soc->adc_common_ccr), false) ||
@@ -144,7 +143,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     memset(soc->sram, 0, soc->description->sram_size);
     memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
-    memset(soc->exti_registers, 0, sizeof(soc->exti_registers));
+    py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     py32_rcc_reset(&soc->rcc);
     py32_gpio_reset(&soc->gpioa, &soc->rcc.iopenr, 1u << 0);
@@ -186,6 +185,26 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             soc->system.nvic_pending |= 1u << 23;
         if (py32_adc_irq_pending(&soc->adc1))
             soc->system.nvic_pending |= 1u << 12;
+        soc->system.nvic_pending =
+            (soc->system.nvic_pending & ~((1u << 5) | (1u << 6) | (1u << 7))) |
+            py32_exti_irq_mask(&soc->exti);
         return result;
     }
+}
+
+void py32_soc_set_gpio_input(Py32Soc *soc, unsigned port, unsigned pin,
+                             bool driven, bool high)
+{
+    Py32Gpio *gpio;
+    uint32_t before, after;
+    if (soc == NULL || pin >= 16u) return;
+    gpio = port == 0u ? &soc->gpioa : port == 1u ? &soc->gpiob
+           : port == 2u ? &soc->gpiof : NULL;
+    if (gpio == NULL) return;
+    before = py32_gpio_input_data(gpio);
+    py32_gpio_set_input(gpio, pin, driven, high);
+    after = py32_gpio_input_data(gpio);
+    py32_exti_input(&soc->exti, port, pin,
+                    (before & (1u << pin)) != 0u,
+                    (after & (1u << pin)) != 0u);
 }

@@ -225,6 +225,17 @@ int main(void)
     assert(py32_adc_irq_pending(&soc.adc1));
     assert(py32_bus_read(&soc.bus, 0x40012440u, 4, &value));
     assert(value == 0x456u && !py32_adc_irq_pending(&soc.adc1));
+    assert(py32_bus_write(&soc.bus, 0x40021860u, 4, 1u << 16)); /* PB2 */
+    assert(py32_bus_write(&soc.bus, 0x40021804u, 4, 1u << 2)); /* falling */
+    assert(py32_bus_write(&soc.bus, 0x40021880u, 4, 1u << 2)); /* unmask */
+    py32_soc_set_gpio_input(&soc, 1u, 2u, true, true);
+    py32_soc_set_gpio_input(&soc, 1u, 2u, true, false);
+    assert((soc.exti.pr & (1u << 2)) != 0u);
+    assert(py32_exti_irq_mask(&soc.exti) == (1u << 6));
+    assert(py32_bus_write(&soc.bus, 0x4002180Cu, 4, 1u << 2));
+    assert(soc.exti.pr == 0u);
+    assert(py32_bus_write(&soc.bus, 0x40021808u, 4, 1u << 7));
+    assert((soc.exti.pr & (1u << 7)) != 0u);
 
     assert(py32_soc_reset(&soc, error, sizeof(error)));
     assert(py32_bus_write(&soc.bus, 0xE000E014u, 4, 1u));

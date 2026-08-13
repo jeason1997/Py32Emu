@@ -69,10 +69,14 @@
   EOC/EOS/OVR、模拟看门狗、IRQ12 和 ADC common CCR 寄存器窗口。
 - 官方 `ADC_ContinuousConversion_TriggerSW_Vrefint` 已完成 HAL 校准、软件启动、
   轮询和取值闭环；默认 VREFINT=1489，十万条指令完成 120 次转换。
+- 将 EXTI 从无语义寄存器窗口升级为控制器模型，支持 RTSR/FTSR、SWIER、PR 的
+  W1C、EXTICR 端口选择、IMR/EMR，以及 EXTI0_1/2_3/4_15 中断分组。
+- GPIO 宿主输入现在会按配置产生边沿；CLI 增加 `--pulse PB2 --pulse-at N` 注入。
+  官方 `EXTI_IT` 已验证 PB2 单次下降沿进入 IRQ6、清除 PR 并翻转 PA5 一次。
 
 ### 正在进行
 
-- 实现 EXTI 边沿/软件触发模型；继续补全特殊寄存器指令与中断优先级。
+- 完善 NVIC 优先级与嵌套异常；继续补全特殊寄存器指令。
 
 ### 下一步
 
@@ -98,9 +102,9 @@ SRAM（`0x20000000`）。其他容量后缀将在获得对应器件目标后作�
 
 - CPU 已能执行基础固件，但 Thumb 指令集和特殊寄存器指令尚不完整。
 - NVIC/SysTick 已有最小模型，但优先级、嵌套异常和全部 SCB 语义尚未完成。
-- RCC/GPIO/USART1/SPI1/I2C1/TIM1/TIM16/ADC1 已有首版；总线时序、错误注入与部分中断
+- RCC/GPIO/EXTI/USART1/SPI1/I2C1/TIM1/TIM16/ADC1 已有首版；总线时序、错误注入与部分中断
   语义仍需完善。
-- 已接入官方 GPIO、USART、TIM1、TIM16、SPI、I2C、ADC HAL 例程；EXTI 等尚未接入。
+- 已接入官方 GPIO、EXTI、USART、TIM1、TIM16、SPI、I2C、ADC HAL 例程。
 
 ## 最近验证
 
@@ -115,6 +119,7 @@ official SPI interrupt master: TX = 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F
 official I2C polling master: TX/RX = 15/15 bytes
 official TIM1_ARR: PA5 low, ARR changed to 6399
 official ADC VREFINT polling: DR=1489, conversions=120
+official EXTI_IT: PB2 falling edge -> IRQ6 -> PA5 low
 ```
 
 GCC 以 `-std=c11 -Wall -Wextra -Wpedantic` 编译，无警告。

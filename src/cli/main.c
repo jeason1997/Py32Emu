@@ -14,6 +14,9 @@ int main(int argc, char **argv)
     uint64_t limit = 1000000u;
     uint64_t steps = 0;
     bool trace = false;
+    bool pulse = false;
+    unsigned pulse_port = 0u, pulse_pin = 0u;
+    uint64_t pulse_at = 10000u;
     int i;
     char error[160];
 
@@ -32,6 +35,24 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc)
             limit = strtoull(argv[++i], NULL, 0);
+        else if (strcmp(argv[i], "--pulse") == 0 && i + 1 < argc) {
+            const char *pin = argv[++i];
+            char *end;
+            if (strlen(pin) < 3u || pin[0] != 'P' ||
+                (pin[1] != 'A' && pin[1] != 'B' && pin[1] != 'F')) {
+                fprintf(stderr, "无效 GPIO 引脚: %s\n", pin);
+                return 2;
+            }
+            pulse_port = pin[1] == 'A' ? 0u : pin[1] == 'B' ? 1u : 2u;
+            pulse_pin = (unsigned)strtoul(pin + 2, &end, 10);
+            if (*end != '\0' || pulse_pin >= 16u) {
+                fprintf(stderr, "无效 GPIO 引脚: %s\n", pin);
+                return 2;
+            }
+            pulse = true;
+        }
+        else if (strcmp(argv[i], "--pulse-at") == 0 && i + 1 < argc)
+            pulse_at = strtoull(argv[++i], NULL, 0);
         else {
             fprintf(stderr, "未知参数: %s\n", argv[i]);
             return 2;
@@ -68,6 +89,8 @@ int main(int argc, char **argv)
         return 1;
     }
     while (!soc.cpu.stopped && steps < limit) {
+        if (pulse && steps == pulse_at)
+            py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, false);
         CortexM0StepResult result = py32_soc_step(&soc);
         if (trace) {
             const Py32FirmwareSymbol *symbol =

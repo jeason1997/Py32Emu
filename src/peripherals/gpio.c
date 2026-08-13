@@ -18,7 +18,7 @@ void py32_gpio_reset(Py32Gpio *gpio, const uint32_t *clock_register,
     gpio->clock_enable_mask = clock_mask;
 }
 
-static uint32_t input_data(const Py32Gpio *gpio)
+uint32_t py32_gpio_input_data(const Py32Gpio *gpio)
 {
     uint32_t value = 0;
     unsigned pin;
@@ -48,7 +48,7 @@ bool py32_gpio_read(void *context, uint32_t offset, unsigned size,
     case 0x04: *value = gpio->otyper; break;
     case 0x08: *value = gpio->ospeedr; break;
     case 0x0C: *value = gpio->pupdr; break;
-    case 0x10: *value = input_data(gpio); break;
+    case 0x10: *value = py32_gpio_input_data(gpio); break;
     case 0x14: *value = gpio->odr; break;
     case 0x18: *value = 0; break;
     case 0x1C: *value = gpio->lckr; break;
