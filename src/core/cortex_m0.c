@@ -188,6 +188,7 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
     cpu->r[CORTEX_M0_SP] = cpu->msp;
     cpu->r[CORTEX_M0_LR] = exc_return;
     cpu->r[CORTEX_M0_PC] = handler & ~1u;
+    cpu->waiting = false;
     cpu->exception_number = exception_number;
     cpu->exception_stack[cpu->exception_depth++] = exception_number;
     cpu->xpsr = (cpu->xpsr & 0xF0000000u) |
@@ -247,7 +248,10 @@ static uint32_t shift_with_flags(CortexM0 *cpu, uint32_t value,
 {
     uint32_t result = value;
 
-    if (register_form && amount == 0u) return value;
+    if (register_form && amount == 0u) {
+        set_nz(cpu, value);
+        return value;
+    }
     if (type == 0u) { /* LSL */
         if (amount < 32u) {
             if (amount != 0u)
@@ -268,7 +272,7 @@ static uint32_t shift_with_flags(CortexM0 *cpu, uint32_t value,
                      amount == 32u && BIT(value, 31) != 0u);
             result = 0;
         }
-    } else { /* ASR */
+    } else if (type == 2u) { /* ASR */
         if (!register_form && amount == 0u) amount = 32u;
         if (amount < 32u) {
             set_flag(cpu, CORTEX_M0_XPSR_C, BIT(value, amount - 1u));
@@ -276,6 +280,14 @@ static uint32_t shift_with_flags(CortexM0 *cpu, uint32_t value,
         } else {
             set_flag(cpu, CORTEX_M0_XPSR_C, BIT(value, 31) != 0u);
             result = BIT(value, 31) != 0u ? UINT32_MAX : 0;
+        }
+    } else { /* ROR */
+        unsigned rotation = amount & 31u;
+        if (rotation == 0u) {
+            set_flag(cpu, CORTEX_M0_XPSR_C, BIT(value, 31) != 0u);
+        } else {
+            result = (value >> rotation) | (value << (32u - rotation));
+            set_flag(cpu, CORTEX_M0_XPSR_C, BIT(result, 31) != 0u);
         }
     }
     set_nz(cpu, result);
@@ -311,6 +323,11 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
 
     if (cpu == NULL || cpu->stopped) {
         if (cpu != NULL) out.stop_reason = cpu->stop_reason;
+        return out;
+    }
+    if (cpu->waiting) {
+        out.cycles = 1u;
+        cpu->cycles += 1u;
         return out;
     }
     pc = cpu->r[CORTEX_M0_PC];
@@ -352,6 +369,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         case 4: cpu->r[rd] = shift_with_flags(cpu, a, 2, b & 0xFFu, true); break;
         case 5: cpu->r[rd] = add_flags(cpu, a, b, BIT(cpu->xpsr, CORTEX_M0_XPSR_C)); break;
         case 6: cpu->r[rd] = sub_flags(cpu, a, b, !BIT(cpu->xpsr, CORTEX_M0_XPSR_C)); break;
+        case 7: cpu->r[rd] = shift_with_flags(cpu, a, 3, b & 0xFFu, true); break;
         case 8: set_nz(cpu, a & b); break; /* TST */
         case 9: cpu->r[rd] = sub_flags(cpu, 0, b, 0); break;
         case 10: (void)sub_flags(cpu, a, b, 0); break;
@@ -482,8 +500,21 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
     } else if ((op & 0xFF00u) == 0xBE00u) {
         cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_BKPT;
     } else if ((op & 0xFF00u) == 0xBF00u) {
-        if ((op & 0x00FFu) == 0x30u) cpu->stopped = true, cpu->stop_reason = CORTEX_M0_STOP_WFI;
-        else if ((op & 0x000Fu) != 0u) cpu->stopped = true, cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        if ((op & 0x000Fu) != 0u) {
+            cpu->stopped = true;
+            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        } else if ((op & 0x00F0u) == 0x20u) {
+            if (cpu->event_register) cpu->event_register = false;
+            else cpu->waiting = true;
+        } else if ((op & 0x00F0u) == 0x30u) cpu->waiting = true;
+        else if ((op & 0x00F0u) == 0x40u) {
+            cpu->event_register = true;
+        }
+    } else if ((op & 0xFF00u) == 0xDF00u) {
+        if (!cortex_m0_enter_exception(cpu, 11u) && !cpu->stopped) {
+            cpu->stopped = true;
+            cpu->stop_reason = CORTEX_M0_STOP_UNDEFINED;
+        }
     } else if ((op & 0xF800u) == 0xE000u) {
         cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0x7FFu, 11) << 1);
     } else if (op == 0xF3EFu || (op & 0xFFF0u) == 0xF380u ||

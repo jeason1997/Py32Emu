@@ -85,9 +85,14 @@
   `EXC_RETURN FD` 返回 PSP。真实双栈固件验证 PSP 入栈 32 字节、ISR 使用 MSP，
   返回线程后 PSP 完整恢复。
 
+- 完成 ARMv6-M Thumb 指令覆盖审计并建立 `docs/THUMB_COVERAGE.md`；补齐 `ROR`，修正
+  寄存器移位量为零时的 N/Z 标志更新。
+- 实现同步 `SVC` 异常以及 `YIELD/SEV/WFE/WFI` 事件与等待语义；真实 Cortex-M0+ 自测固件
+  已验证 SVC handler 和 SysTick 唤醒 WFI。`CBZ/CBNZ`、`IT/ITE` 经工具链确认不属于本目标。
+
 ### 正在进行
 
-- 审计并补齐剩余 ARMv6-M Thumb 指令，建立指令级覆盖清单。
+- 为已覆盖的 ARMv6-M 指令增加边界值、非法编码与周期精度测试。
 
 ### 下一步
 

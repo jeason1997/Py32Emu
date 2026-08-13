@@ -39,6 +39,8 @@ typedef struct {
     unsigned exception_stack[8];
     unsigned exception_depth;
     bool primask;
+    bool waiting;
+    bool event_register;
     bool stopped;
     CortexM0StopReason stop_reason;
     uint16_t last_instruction;
