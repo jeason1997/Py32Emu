@@ -57,6 +57,7 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
+    soc->exti_irq_level = 0u;
     /* 工厂校准区中固件常用的 Flash 容量字段，单位 KiB。 */
     soc->system_memory[0xFFCu] = (uint8_t)(description->flash_size / 1024u);
     memcpy(soc->flash + (firmware->load_address - description->flash_base),
@@ -145,6 +146,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
+    soc->exti_irq_level = 0u;
     py32_rcc_reset(&soc->rcc);
     py32_gpio_reset(&soc->gpioa, &soc->rcc.iopenr, 1u << 0);
     py32_gpio_reset(&soc->gpiob, &soc->rcc.iopenr, 1u << 1);
@@ -185,9 +187,11 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             soc->system.nvic_pending |= 1u << 23;
         if (py32_adc_irq_pending(&soc->adc1))
             soc->system.nvic_pending |= 1u << 12;
-        soc->system.nvic_pending =
-            (soc->system.nvic_pending & ~((1u << 5) | (1u << 6) | (1u << 7))) |
-            py32_exti_irq_mask(&soc->exti);
+        {
+            uint32_t level = py32_exti_irq_mask(&soc->exti);
+            soc->system.nvic_pending |= level & ~soc->exti_irq_level;
+            soc->exti_irq_level = level;
+        }
         return result;
     }
 }

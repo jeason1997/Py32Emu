@@ -110,8 +110,18 @@ int main(void)
     program[28] = 0x00; program[29] = 0xB5; /* SysTick: PUSH {lr} */
     program[30] = 0x2A; program[31] = 0x24; /* MOVS r4,#42 */
     program[32] = 0x00; program[33] = 0xBD; /* POP {pc} / EXC_RETURN */
+    program[34] = 0x02; program[35] = 0x26; /* IRQ5(high): MOVS r6,#2 */
+    program[36] = 0x70; program[37] = 0x47; /* BX LR */
+    program[38] = 0x01; program[39] = 0x25; /* IRQ6(low): MOVS r5,#1 */
+    program[40] = 0x00; program[41] = 0xBF; /* NOP */
+    program[42] = 0x03; program[43] = 0x25; /* MOVS r5,#3 */
+    program[44] = 0x70; program[45] = 0x47; /* BX LR */
     program[60] = 0x1D; program[61] = 0x00;
     program[62] = 0x00; program[63] = 0x08; /* SysTick 向量 */
+    program[84] = 0x23; program[85] = 0x00;
+    program[86] = 0x00; program[87] = 0x08; /* IRQ5 vector */
+    program[88] = 0x27; program[89] = 0x00;
+    program[90] = 0x00; program[91] = 0x08; /* IRQ6 vector */
 
     py32_bus_init(&bus);
     memset(ram, 0, sizeof(ram));
@@ -247,6 +257,28 @@ int main(void)
     py32_soc_step(&soc); /* BX LR 恢复线程上下文。 */
     assert(soc.cpu.exception_number == 0u);
     assert(soc.cpu.r[CORTEX_M0_SP] == 0x20000C00u);
+
+    assert(py32_soc_reset(&soc, error, sizeof(error)));
+    assert(py32_bus_write(&soc.bus, 0xE000E100u, 4,
+                          (1u << 5) | (1u << 6)));
+    assert(py32_bus_write(&soc.bus, 0xE000E404u, 4, 0x00C04000u));
+    assert(py32_bus_write(&soc.bus, 0xE000E200u, 4, 1u << 6));
+    assert(py32_system_service_exception(&soc.system));
+    assert(soc.cpu.exception_number == 22u && soc.cpu.exception_depth == 1u);
+    cortex_m0_step(&soc.cpu);
+    assert(soc.cpu.r[5] == 1u);
+    assert(py32_bus_write(&soc.bus, 0xE000E200u, 4, 1u << 5));
+    assert(py32_system_service_exception(&soc.system));
+    assert(soc.cpu.exception_number == 21u && soc.cpu.exception_depth == 2u);
+    cortex_m0_step(&soc.cpu);
+    cortex_m0_step(&soc.cpu);
+    assert(soc.cpu.r[6] == 2u && soc.cpu.exception_number == 22u);
+    cortex_m0_step(&soc.cpu);
+    cortex_m0_step(&soc.cpu);
+    cortex_m0_step(&soc.cpu);
+    assert(soc.cpu.r[5] == 3u && soc.cpu.exception_number == 0u);
+    assert(soc.cpu.exception_depth == 0u &&
+           soc.cpu.r[CORTEX_M0_SP] == 0x20000C00u);
     py32_soc_destroy(&soc);
 
     puts("foundation tests passed");

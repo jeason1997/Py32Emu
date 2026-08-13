@@ -4,6 +4,19 @@
 
 enum { SYST_ENABLE = 1u, SYST_TICKINT = 2u, SYST_COUNTFLAG = 1u << 16 };
 
+static uint8_t exception_priority(const Py32System *s, unsigned exception)
+{
+    if (exception == 0u) return 0xFFu;
+    if (exception < 4u) return 0u;
+    if (exception >= 16u && exception < 48u)
+        return s->nvic_priority[exception - 16u] & 0xC0u;
+    if (exception >= 8u && exception <= 15u) {
+        unsigned byte = exception - 8u;
+        return (uint8_t)(s->scb_shp[byte / 4u] >> (8u * (byte & 3u))) & 0xC0u;
+    }
+    return 0u;
+}
+
 void py32_system_reset(Py32System *system, CortexM0 *cpu,
                        uint32_t clock_hz)
 {
@@ -27,8 +40,21 @@ bool py32_system_read(void *context, uint32_t offset, unsigned size,
     case 0x180: *value = s->nvic_enable; break;
     case 0x200: *value = s->nvic_pending; break;
     case 0x280: *value = s->nvic_pending; break;
+    case 0x300:
+        *value = 0u;
+        {
+            unsigned depth;
+            for (depth = 0; depth < s->cpu->exception_depth; ++depth) {
+                unsigned exception = s->cpu->exception_stack[depth];
+                if (exception >= 16u && exception < 48u)
+                    *value |= 1u << (exception - 16u);
+            }
+        }
+        break;
     case 0xD00: *value = 0x410CC601u; break; /* Cortex-M0+ CPUID */
-    case 0xD04: *value = s->icsr; break;
+    case 0xD04:
+        *value = (s->icsr & ~0x1FFu) | (s->cpu->exception_number & 0x1FFu);
+        break;
     case 0xD08: *value = s->cpu->vector_table; break;
     case 0xD0C: *value = 0xFA050000u; break;
     case 0xD10: *value = s->scb_scr; break;
@@ -103,18 +129,30 @@ void py32_system_tick(Py32System *s, unsigned cpu_cycles)
 
 bool py32_system_service_exception(Py32System *s)
 {
-    unsigned irq;
-    if (s->cpu->exception_number != 0u || s->cpu->primask) return false;
+    unsigned irq, best_exception = 0u;
+    uint8_t active_priority, best_priority = 0xFFu;
+    if (s->cpu->primask) return false;
+    active_priority = exception_priority(s, s->cpu->exception_number);
     if (s->systick_pending) {
-        s->systick_pending = false;
-        return cortex_m0_enter_exception(s->cpu, 15u);
+        uint8_t priority = exception_priority(s, 15u);
+        if (priority < active_priority) {
+            best_exception = 15u;
+            best_priority = priority;
+        }
     }
     for (irq = 0; irq < 32u; ++irq) {
         uint32_t mask = 1u << irq;
         if ((s->nvic_enable & s->nvic_pending & mask) != 0u) {
-            s->nvic_pending &= ~mask;
-            return cortex_m0_enter_exception(s->cpu, 16u + irq);
+            uint8_t priority = exception_priority(s, 16u + irq);
+            if (priority < active_priority &&
+                (best_exception == 0u || priority < best_priority)) {
+                best_exception = 16u + irq;
+                best_priority = priority;
+            }
         }
     }
-    return false;
+    if (best_exception == 0u) return false;
+    if (best_exception == 15u) s->systick_pending = false;
+    else s->nvic_pending &= ~(1u << (best_exception - 16u));
+    return cortex_m0_enter_exception(s->cpu, best_exception);
 }

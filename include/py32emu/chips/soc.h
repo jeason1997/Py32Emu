@@ -38,6 +38,7 @@ typedef struct {
     uint8_t flash_registers[0x124];
     uint8_t syscfg_registers[0x88];
     uint32_t adc_common_ccr;
+    uint32_t exti_irq_level;
 } Py32Soc;
 
 void py32_soc_init(Py32Soc *soc);

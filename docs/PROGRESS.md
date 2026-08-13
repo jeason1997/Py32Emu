@@ -73,10 +73,16 @@
   W1C、EXTICR 端口选择、IMR/EMR，以及 EXTI0_1/2_3/4_15 中断分组。
 - GPIO 宿主输入现在会按配置产生边沿；CLI 增加 `--pulse PB2 --pulse-at N` 注入。
   官方 `EXTI_IT` 已验证 PB2 单次下降沿进入 IRQ6、清除 PR 并翻转 PA5 一次。
+- NVIC 现按 Cortex-M0+ 实现的高 2 位优先级仲裁，同优先级按异常号决定顺序；
+  SysTick 使用 SHPR 优先级，并允许更高优先级异常抢占当前 ISR。
+- CPU 增加八层活动异常栈和 Handler/Thread 两种 `EXC_RETURN`（F1/F9），嵌套返回
+  可恢复先前异常号；NVIC IABR 与 ICSR VECTACTIVE 可观察当前活动状态。
+- 新增真实 Cortex-M0+ 抢占固件，验证 IRQ5 抢占 IRQ6 后依次返回 IRQ6 与线程，
+  同时修正 EXTI 源锁存，避免覆盖软件写入的 NVIC ISPR。
 
 ### 正在进行
 
-- 完善 NVIC 优先级与嵌套异常；继续补全特殊寄存器指令。
+- 补全 MRS/MSR、MSP/PSP/CONTROL 等特殊寄存器指令与线程栈选择。
 
 ### 下一步
 
@@ -101,7 +107,7 @@ SRAM（`0x20000000`）。其他容量后缀将在获得对应器件目标后作�
 ## 尚未完成/未验证
 
 - CPU 已能执行基础固件，但 Thumb 指令集和特殊寄存器指令尚不完整。
-- NVIC/SysTick 已有最小模型，但优先级、嵌套异常和全部 SCB 语义尚未完成。
+- NVIC/SysTick 已支持优先级和嵌套异常；尾链、晚到中断和全部 SCB 语义尚未完成。
 - RCC/GPIO/EXTI/USART1/SPI1/I2C1/TIM1/TIM16/ADC1 已有首版；总线时序、错误注入与部分中断
   语义仍需完善。
 - 已接入官方 GPIO、EXTI、USART、TIM1、TIM16、SPI、I2C、ADC HAL 例程。
@@ -120,6 +126,7 @@ official I2C polling master: TX/RX = 15/15 bytes
 official TIM1_ARR: PA5 low, ARR changed to 6399
 official ADC VREFINT polling: DR=1489, conversions=120
 official EXTI_IT: PB2 falling edge -> IRQ6 -> PA5 low
+NVIC preemption firmware: IRQ6 -> IRQ5 -> IRQ6 -> thread, breakpoint
 ```
 
 GCC 以 `-std=c11 -Wall -Wextra -Wpedantic` 编译，无警告。

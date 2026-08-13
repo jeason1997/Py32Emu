@@ -36,6 +36,8 @@ typedef struct {
     uint32_t control;
     uint32_t vector_table;
     unsigned exception_number;
+    unsigned exception_stack[8];
+    unsigned exception_depth;
     bool primask;
     bool stopped;
     CortexM0StopReason stop_reason;

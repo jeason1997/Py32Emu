@@ -101,7 +101,8 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
     uint32_t sp, handler;
     uint32_t frame[8];
     unsigned i;
-    if (cpu == NULL || cpu->stopped || exception_number == 0u) return false;
+    if (cpu == NULL || cpu->stopped || exception_number == 0u ||
+        cpu->exception_depth >= 8u) return false;
     sp = cpu->r[CORTEX_M0_SP] - 32u;
     frame[0] = cpu->r[0]; frame[1] = cpu->r[1];
     frame[2] = cpu->r[2]; frame[3] = cpu->r[3];
@@ -117,9 +118,11 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
     }
     cpu->r[CORTEX_M0_SP] = sp;
     cpu->msp = sp;
-    cpu->r[CORTEX_M0_LR] = 0xFFFFFFF9u;
+    cpu->r[CORTEX_M0_LR] = cpu->exception_number == 0u
+        ? 0xFFFFFFF9u : 0xFFFFFFF1u;
     cpu->r[CORTEX_M0_PC] = handler & ~1u;
     cpu->exception_number = exception_number;
+    cpu->exception_stack[cpu->exception_depth++] = exception_number;
     cpu->xpsr = (cpu->xpsr & 0xF0000000u) |
                 FLAG(CORTEX_M0_XPSR_T) | exception_number;
     return true;
@@ -130,7 +133,7 @@ static bool exception_return(CortexM0 *cpu, uint32_t exc_return)
     uint32_t sp = cpu->r[CORTEX_M0_SP];
     uint32_t frame[8];
     unsigned i;
-    if (exc_return != 0xFFFFFFF9u) return false;
+    if (exc_return != 0xFFFFFFF9u && exc_return != 0xFFFFFFF1u) return false;
     for (i = 0; i < 8u; ++i)
         if (!load(cpu, sp + i * 4u, 4, &frame[i])) return true;
     cpu->r[0] = frame[0]; cpu->r[1] = frame[1];
@@ -140,7 +143,9 @@ static bool exception_return(CortexM0 *cpu, uint32_t exc_return)
     cpu->xpsr = frame[7] | FLAG(CORTEX_M0_XPSR_T);
     cpu->r[CORTEX_M0_SP] = sp + 32u;
     cpu->msp = cpu->r[CORTEX_M0_SP];
-    cpu->exception_number = 0;
+    if (cpu->exception_depth > 0u) --cpu->exception_depth;
+    cpu->exception_number = cpu->exception_depth > 0u
+        ? cpu->exception_stack[cpu->exception_depth - 1u] : 0u;
     return true;
 }
 
