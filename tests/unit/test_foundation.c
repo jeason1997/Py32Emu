@@ -40,6 +40,8 @@ int main(void)
     assert(chip->flash_size == 20u * 1024u);
     assert(chip->sram_size == 3u * 1024u);
     assert(py32_chip_by_name("unknown") == NULL);
+    assert(py32_chip_by_name("py32f002a-32k")->flash_size == 32u * 1024u);
+    assert(py32_chip_by_name("py32f002a-32k")->sram_size == 4u * 1024u);
     py32_firmware_image_init(&image);
     assert(py32_firmware_load_hex(&image, "tests/fixtures/minimal.hex",
                                   chip->flash_base, chip->flash_size,

@@ -18,11 +18,18 @@ int main(int argc, char **argv)
     char error[160];
 
     if (argc < 2) {
-        fprintf(stderr, "用法: %s firmware.bin [--steps N] [--trace]\n", argv[0]);
+        fprintf(stderr, "用法: %s firmware [--chip 型号] [--steps N] [--trace]\n", argv[0]);
         return 2;
     }
     for (i = 2; i < argc; ++i) {
         if (strcmp(argv[i], "--trace") == 0) trace = true;
+        else if (strcmp(argv[i], "--chip") == 0 && i + 1 < argc) {
+            chip = py32_chip_by_name(argv[++i]);
+            if (chip == NULL) {
+                fprintf(stderr, "未知芯片型号: %s\n", argv[i]);
+                return 2;
+            }
+        }
         else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc)
             limit = strtoull(argv[++i], NULL, 0);
         else {

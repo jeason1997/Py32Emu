@@ -16,6 +16,6 @@ typedef struct {
 
 const Py32ChipDescription *py32_chip_by_name(const char *name);
 const Py32ChipDescription *py32f002ax5_description(void);
+const Py32ChipDescription *py32f002a_32k_description(void);
 
 #endif
-

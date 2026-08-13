@@ -26,3 +26,16 @@ make test
 ./build/py32emu firmware.bin
 ```
 
+运行官方 HAL 编译的串口示例：
+
+```sh
+make -C examples/hello_world
+./build/py32emu examples/hello_world/build/hello_world.elf
+```
+
+默认型号 `py32f002ax5` 使用官方标称 20 KiB Flash/3 KiB SRAM。对于已通过
+实机确认具有隐藏容量的器件，可以指定：
+
+```sh
+./build/py32emu firmware.elf --chip py32f002a-32k
+```
