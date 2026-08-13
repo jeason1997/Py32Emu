@@ -291,7 +291,11 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         if (((op >> 8) & 3u) == 0u) cpu->r[rd] += cpu->r[rm];
         else if (((op >> 8) & 3u) == 1u) (void)sub_flags(cpu, cpu->r[rd], cpu->r[rm], 0);
         else if (((op >> 8) & 3u) == 2u) cpu->r[rd] = cpu->r[rm];
-        else branch_exchange(cpu, cpu->r[rm]);
+        else {
+            value = cpu->r[rm];
+            if (BIT(op, 7)) cpu->r[CORTEX_M0_LR] = (pc + 2u) | 1u;
+            branch_exchange(cpu, value);
+        }
         if (rd == CORTEX_M0_PC && ((op >> 8) & 3u) != 1u)
             cpu->r[rd] &= ~1u;
     } else if ((op & 0xF800u) == 0x4800u) {
@@ -367,7 +371,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
     } else if ((op & 0xFE00u) == 0xB400u) {
         unsigned mask = op & 0xFFu;
         if (BIT(op, 8)) mask |= 1u << CORTEX_M0_LR;
-        for (rn = 15u; rn-- > 0u;) if (mask & (1u << rn)) {
+        for (rn = 16u; rn-- > 0u;) if (mask & (1u << rn)) {
             cpu->r[CORTEX_M0_SP] -= 4u;
             if (!store(cpu, cpu->r[CORTEX_M0_SP], 4, cpu->r[rn])) break;
         }

@@ -7,6 +7,13 @@
 #include <stdio.h>
 #include <string.h>
 
+static uint16_t spi_echo(void *context, uint16_t output, unsigned bits)
+{
+    unsigned *calls = context;
+    ++*calls;
+    return (uint16_t)(output ^ (bits == 8u ? 0xFFu : 0xFFFFu));
+}
+
 int main(void)
 {
     Py32Bus bus;
@@ -14,6 +21,7 @@ int main(void)
     uint8_t flash[8] = {0x78, 0x56, 0x34, 0x12};
     uint32_t value;
     const Py32ChipDescription *chip;
+    unsigned spi_calls = 0;
     CortexM0 cpu;
     Py32Soc soc;
     Py32FirmwareImage image;
@@ -66,8 +74,9 @@ int main(void)
     program[18] = 0x04; program[19] = 0xB4; /* PUSH {r2} */
     program[20] = 0x08; program[21] = 0xBC; /* POP {r3} */
     program[22] = 0x00; program[23] = 0xBE; /* BKPT #0 */
-    program[24] = 0x2A; program[25] = 0x24; /* SysTick: MOVS r4,#42 */
-    program[26] = 0x70; program[27] = 0x47; /* BX LR / EXC_RETURN */
+    program[24] = 0x00; program[25] = 0xB5; /* SysTick: PUSH {lr} */
+    program[26] = 0x2A; program[27] = 0x24; /* MOVS r4,#42 */
+    program[28] = 0x00; program[29] = 0xBD; /* POP {pc} / EXC_RETURN */
     program[60] = 0x19; program[61] = 0x00;
     program[62] = 0x00; program[63] = 0x08; /* SysTick 向量 */
 
@@ -142,6 +151,20 @@ int main(void)
     assert(!py32_timer_tick(&soc.tim16, 5u));
     assert(py32_timer_tick(&soc.tim16, 1u));
     assert((soc.tim16.reg[4] & 1u) != 0u);
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4,
+                          (1u << 12) | (1u << 14) | (1u << 17)));
+    py32_spi_connect(&soc.spi1, spi_echo, &spi_calls);
+    assert(py32_bus_write(&soc.bus, 0x40013000u, 4, 1u << 6));
+    assert(py32_bus_write(&soc.bus, 0x40013004u, 4, 1u << 6));
+    assert(py32_bus_write(&soc.bus, 0x4001300Cu, 1, 0x35u));
+    assert(spi_calls == 1u && soc.spi1.tx[0] == 0x35u);
+    assert(py32_spi_irq_pending(&soc.spi1));
+    {
+        uint32_t response;
+        assert(py32_bus_read(&soc.bus, 0x4001300Cu, 1, &response));
+        assert(response == 0xCAu);
+        assert(!py32_spi_irq_pending(&soc.spi1));
+    }
 
     assert(py32_soc_reset(&soc, error, sizeof(error)));
     assert(py32_bus_write(&soc.bus, 0xE000E014u, 4, 1u));

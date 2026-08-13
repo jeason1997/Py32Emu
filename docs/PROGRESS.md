@@ -53,10 +53,14 @@
   `py32f002ax5` 容量边界。
 - 新增可直接构建的官方 HAL `examples/hello_world`，模拟器已真实捕获
   `Hello World\r\n` 十三个串口字节并以 BKPT 正常结束，纳入自动回归。
+- 实现 SPI1 基础模型：CR1/CR2/SR/DR、RCC 门控、8/16 位传输、发送捕获、
+  虚拟从机交换回调和 IRQ25 请求；同时加入 SYSCFG/EXTI 基础寄存器窗口。
+- 官方 `SPI_TwoBoards_FullDuplexMaster_IT` 中断主机例程已运行，完整捕获
+  `01` 至 `0F`；其暴露的 `PUSH {lr}` 和寄存器形式 `BLX` CPU 缺陷已修复。
 
 ### 正在进行
 
-- 实现 TIM1 公共计数功能；继续补全特殊寄存器指令和中断优先级。
+- 实现 TIM1 公共计数功能和 I2C 基础模型；继续补全特殊寄存器指令与中断优先级。
 
 ### 下一步
 

@@ -13,6 +13,7 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
 	src/peripherals/system.c \
 	src/peripherals/usart.c \
 	src/peripherals/timer.c \
+	src/peripherals/spi.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
 TARGET_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
@@ -25,6 +26,7 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/rcc.o \
 	$(OBJ_DIR)/src/peripherals/gpio.o $(OBJ_DIR)/src/peripherals/system.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/usart.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/timer.o
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/spi.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 
 .PHONY: all test unit-test integration-test clean
@@ -52,6 +54,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_official_usart.sh
 	sh tests/integration/test_official_tim16.sh
 	sh tests/integration/test_hello_world.sh
+	sh tests/integration/test_official_spi.sh
 
 test: unit-test integration-test
 

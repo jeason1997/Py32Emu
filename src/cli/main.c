@@ -97,6 +97,13 @@ int main(int argc, char **argv)
             printf(" %02X", soc.usart1.tx[n]);
         putchar('\n');
     }
+    if (soc.spi1.tx_count > 0u) {
+        size_t n;
+        printf("SPI1 TX (%zu):", soc.spi1.tx_count);
+        for (n = 0; n < soc.spi1.tx_count; ++n)
+            printf(" %02X", soc.spi1.tx[n]);
+        putchar('\n');
+    }
     py32_soc_destroy(&soc);
     py32_firmware_image_free(&image);
     return 0;
