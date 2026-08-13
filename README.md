@@ -33,6 +33,15 @@ make -C examples/hello_world
 ./build/py32emu examples/hello_world/build/hello_world.elf
 ```
 
+Web 调试台：
+
+```sh
+./frontends/web/scripts/start.sh
+```
+
+浏览器打开 `http://127.0.0.1:4174`，可进行固件加载、单步、运行、地址断点、寄存器、
+GPIO 和内存查看。详细说明见 [Web 调试界面](docs/WEB_DEBUGGER.md)。
+
 默认型号 `py32f002ax5` 使用官方标称 20 KiB Flash/3 KiB SRAM。对于已通过
 实机确认具有隐藏容量的器件，可以指定：
 

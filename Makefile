@@ -6,6 +6,7 @@ BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/py32emu
 TEST_TARGET := $(BUILD_DIR)/tests/test_foundation
+WEB_TARGET := $(BUILD_DIR)/py32emu-web-core
 
 CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
 	src/chips/chip.c src/chips/py32f002a.c src/chips/soc.c \
@@ -19,6 +20,7 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
 	src/peripherals/exti.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
+WEB_SOURCES := src/web/backend.c
 TARGET_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(CLI_SOURCES:.c=.o))
 TEST_OBJECTS := $(addprefix $(OBJ_DIR)/,tests/unit/test_foundation.o \
@@ -34,8 +36,11 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/i2c.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/adc.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/exti.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
+WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
+	$(WEB_SOURCES:.c=.o))
+DEPFILES += $(WEB_OBJECTS:.o=.d)
 
-.PHONY: all test unit-test integration-test clean
+.PHONY: all web-core run-web test unit-test integration-test clean
 
 all: $(TARGET)
 
@@ -47,6 +52,15 @@ $(TEST_TARGET): $(TEST_OBJECTS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
+$(WEB_TARGET): $(WEB_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+web-core: $(WEB_TARGET)
+
+run-web: web-core
+	sh frontends/web/scripts/start.sh
+
 $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
@@ -54,7 +68,7 @@ $(OBJ_DIR)/%.o: %.c
 unit-test: $(TEST_TARGET)
 	$(TEST_TARGET)
 
-integration-test: $(TARGET)
+integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_minimal_firmware.sh
 	sh tests/integration/test_official_gpio.sh
 	sh tests/integration/test_official_usart.sh
@@ -69,6 +83,8 @@ integration-test: $(TARGET)
 	sh tests/integration/test_dual_stack.sh
 	sh tests/integration/test_thumb_control_flow.sh
 	sh tests/integration/test_hardfault_paths.sh
+	sh tests/integration/test_web_backend.sh
+	sh tests/integration/test_web_server.sh
 
 test: unit-test integration-test
 
