@@ -1,0 +1,59 @@
+CC ?= gcc
+CPPFLAGS ?= -Iinclude
+CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2
+
+BUILD_DIR := build
+OBJ_DIR := $(BUILD_DIR)/obj
+TARGET := $(BUILD_DIR)/py32emu
+TEST_TARGET := $(BUILD_DIR)/tests/test_foundation
+
+CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
+	src/chips/chip.c src/chips/py32f002a.c src/chips/soc.c \
+	src/peripherals/rcc.c src/peripherals/gpio.c \
+	src/peripherals/system.c \
+	src/peripherals/usart.c \
+	src/peripherals/timer.c \
+	src/firmware/image.c
+CLI_SOURCES := src/cli/main.c
+TARGET_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
+	$(CLI_SOURCES:.c=.o))
+TEST_OBJECTS := $(addprefix $(OBJ_DIR)/,tests/unit/test_foundation.o \
+	src/core/bus.o src/core/cortex_m0.o src/chips/chip.o \
+	src/chips/py32f002a.o src/chips/soc.o src/firmware/image.o)
+
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/rcc.o \
+	$(OBJ_DIR)/src/peripherals/gpio.o $(OBJ_DIR)/src/peripherals/system.o
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/usart.o
+TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/timer.o
+DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
+
+.PHONY: all test unit-test integration-test clean
+
+all: $(TARGET)
+
+$(TARGET): $(TARGET_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(TEST_TARGET): $(TEST_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+unit-test: $(TEST_TARGET)
+	$(TEST_TARGET)
+
+integration-test: $(TARGET)
+	sh tests/integration/test_minimal_firmware.sh
+	sh tests/integration/test_official_gpio.sh
+	sh tests/integration/test_official_usart.sh
+
+test: unit-test integration-test
+
+clean:
+	rm -rf $(BUILD_DIR)
+
+-include $(DEPFILES)

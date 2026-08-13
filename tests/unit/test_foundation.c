@@ -1,0 +1,158 @@
+#include "py32emu/chips/chip.h"
+#include "py32emu/chips/soc.h"
+#include "py32emu/core/bus.h"
+#include "py32emu/core/cortex_m0.h"
+
+#include <assert.h>
+#include <stdio.h>
+#include <string.h>
+
+int main(void)
+{
+    Py32Bus bus;
+    uint8_t ram[3u * 1024u] = {0};
+    uint8_t flash[8] = {0x78, 0x56, 0x34, 0x12};
+    uint32_t value;
+    const Py32ChipDescription *chip;
+    CortexM0 cpu;
+    Py32Soc soc;
+    Py32FirmwareImage image;
+    char error[128];
+    uint8_t program[96];
+
+    py32_bus_init(&bus);
+    assert(py32_bus_add_memory(&bus, "flash", 0x08000000u,
+                               flash, sizeof(flash), true));
+    assert(py32_bus_add_memory(&bus, "sram", 0x20000000u,
+                               ram, sizeof(ram), false));
+    assert(!py32_bus_add_memory(&bus, "overlap", 0x20000008u,
+                                ram, sizeof(ram), false));
+    assert(py32_bus_read(&bus, 0x08000000u, 4, &value));
+    assert(value == 0x12345678u);
+    assert(!py32_bus_write(&bus, 0x08000000u, 1, 0));
+    assert(py32_bus_write(&bus, 0x20000004u, 4, 0xAABBCCDDu));
+    assert(py32_bus_read(&bus, 0x20000004u, 4, &value));
+    assert(value == 0xAABBCCDDu);
+    assert(!py32_bus_read(&bus, 0x20000001u, 2, &value));
+
+    chip = py32_chip_by_name("py32f002a");
+    assert(chip != NULL);
+    assert(chip->flash_size == 20u * 1024u);
+    assert(chip->sram_size == 3u * 1024u);
+    assert(py32_chip_by_name("unknown") == NULL);
+    py32_firmware_image_init(&image);
+    assert(py32_firmware_load_hex(&image, "tests/fixtures/minimal.hex",
+                                  chip->flash_base, chip->flash_size,
+                                  error, sizeof(error)));
+    assert(image.size == 4u && image.data[0] == 1u && image.data[3] == 4u);
+    py32_firmware_image_free(&image);
+
+    /*
+     * 最小 Thumb 程序：MOVS r0,#5; ADDS r0,#3; SUBS r0,#1;
+     * STR r0,[r1,#0]; LDR r2,[r1,#0]; PUSH {r2}; POP {r3}; BKPT。
+     */
+    memset(program, 0, sizeof(program));
+    program[0] = 0x00; program[1] = 0x0C;
+    program[2] = 0x00; program[3] = 0x20; /* 初始 MSP = 0x20000C00 */
+    program[4] = 0x09; program[5] = 0x00;
+    program[6] = 0x00; program[7] = 0x08; /* reset = 0x08000009 */
+    program[8] = 0x05; program[9] = 0x20; /* MOVS r0,#5 */
+    program[10] = 0x03; program[11] = 0x30; /* ADDS r0,#3 */
+    program[12] = 0x01; program[13] = 0x38; /* SUBS r0,#1 */
+    program[14] = 0x08; program[15] = 0x60; /* STR r0,[r1,#0] */
+    program[16] = 0x0A; program[17] = 0x68; /* LDR r2,[r1,#0] */
+    program[18] = 0x04; program[19] = 0xB4; /* PUSH {r2} */
+    program[20] = 0x08; program[21] = 0xBC; /* POP {r3} */
+    program[22] = 0x00; program[23] = 0xBE; /* BKPT #0 */
+    program[24] = 0x2A; program[25] = 0x24; /* SysTick: MOVS r4,#42 */
+    program[26] = 0x70; program[27] = 0x47; /* BX LR / EXC_RETURN */
+    program[60] = 0x19; program[61] = 0x00;
+    program[62] = 0x00; program[63] = 0x08; /* SysTick 向量 */
+
+    py32_bus_init(&bus);
+    memset(ram, 0, sizeof(ram));
+    assert(py32_bus_add_memory(&bus, "flash", 0x08000000u,
+                               program, sizeof(program), true));
+    assert(py32_bus_add_memory(&bus, "sram", 0x20000000u,
+                               ram, sizeof(ram), false));
+    cortex_m0_init(&cpu, &bus);
+    assert(cortex_m0_reset(&cpu, 0x08000000u));
+    cpu.r[1] = 0x20000000u;
+    while (!cpu.stopped) cortex_m0_step(&cpu);
+    if (cpu.stop_reason != CORTEX_M0_STOP_BKPT) {
+        fprintf(stderr, "unexpected stop=%s pc=%08X op=%04X fault=%08X sp=%08X\n",
+                cortex_m0_stop_reason_name(cpu.stop_reason),
+                cpu.last_pc, cpu.last_instruction, bus.fault_address,
+                cpu.r[CORTEX_M0_SP]);
+    }
+    assert(cpu.stop_reason == CORTEX_M0_STOP_BKPT);
+    assert(cpu.r[0] == 7u && cpu.r[2] == 7u && cpu.r[3] == 7u);
+    assert(cpu.r[CORTEX_M0_SP] == 0x20000C00u);
+    assert(ram[0] == 7u);
+
+    /* SoC 装配必须同时提供 0 地址别名和 0x08000000 主 Flash。 */
+    py32_soc_init(&soc);
+    py32_firmware_image_init(&image);
+    image.data = program;
+    image.size = sizeof(program);
+    image.load_address = chip->flash_base;
+    assert(py32_soc_configure(&soc, chip, &image, error, sizeof(error)));
+    assert(py32_soc_reset(&soc, error, sizeof(error)));
+    soc.cpu.r[1] = chip->sram_base;
+    while (!soc.cpu.stopped) py32_soc_step(&soc);
+    assert(soc.cpu.stop_reason == CORTEX_M0_STOP_BKPT);
+    assert(soc.sram[0] == 7u);
+
+    /* RCC 时钟门控和 GPIO 原子置位/复位必须符合固件可见语义。 */
+    assert(py32_bus_write(&soc.bus, 0x50000000u, 4, 0));
+    assert(soc.gpioa.moder == 0xFFFFFFFFu); /* 未开时钟时写入无效 */
+    assert(py32_bus_write(&soc.bus, 0x40021034u, 4, 1u));
+    assert(py32_bus_write(&soc.bus, 0x50000000u, 4,
+                          (soc.gpioa.moder & ~(3u << 10)) | (1u << 10)));
+    assert(py32_bus_write(&soc.bus, 0x50000018u, 4, 1u << 5));
+    {
+        bool driven, high;
+        assert(py32_gpio_pin_output(&soc.gpioa, 5, &driven, &high));
+        assert(driven && high);
+    }
+    assert(py32_bus_write(&soc.bus, 0x50000028u, 4, 1u << 5));
+    assert((soc.gpioa.odr & (1u << 5)) == 0u);
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4, 1u << 14));
+    assert(py32_bus_write(&soc.bus, 0x4001380Cu, 4,
+                          (1u << 13) | (1u << 3) | (1u << 2)));
+    assert(py32_bus_write(&soc.bus, 0x40013804u, 1, 0xA5u));
+    assert(soc.usart1.tx_count == 1u && soc.usart1.tx[0] == 0xA5u);
+    {
+        const uint8_t input[] = {0x11u, 0x22u};
+        uint32_t received;
+        assert(py32_usart_receive(&soc.usart1, input, sizeof(input)) == 2u);
+        assert(py32_bus_read(&soc.bus, 0x40013800u, 4, &received));
+        assert((received & (1u << 5)) != 0u);
+        assert(py32_bus_read(&soc.bus, 0x40013804u, 1, &received));
+        assert(received == 0x11u);
+    }
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4,
+                          (1u << 14) | (1u << 17)));
+    assert(py32_bus_write(&soc.bus, 0x40014428u, 4, 1u)); /* PSC=1 */
+    assert(py32_bus_write(&soc.bus, 0x4001442Cu, 4, 2u)); /* ARR=2 */
+    assert(py32_bus_write(&soc.bus, 0x4001440Cu, 4, 1u)); /* UIE */
+    assert(py32_bus_write(&soc.bus, 0x40014400u, 4, 1u)); /* CEN */
+    assert(!py32_timer_tick(&soc.tim16, 5u));
+    assert(py32_timer_tick(&soc.tim16, 1u));
+    assert((soc.tim16.reg[4] & 1u) != 0u);
+
+    assert(py32_soc_reset(&soc, error, sizeof(error)));
+    assert(py32_bus_write(&soc.bus, 0xE000E014u, 4, 1u));
+    assert(py32_bus_write(&soc.bus, 0xE000E018u, 4, 0u));
+    assert(py32_bus_write(&soc.bus, 0xE000E010u, 4, 3u));
+    while (soc.cpu.r[4] != 42u && !soc.cpu.stopped) py32_soc_step(&soc);
+    assert(soc.cpu.r[4] == 42u);
+    assert(soc.cpu.exception_number == 15u);
+    py32_soc_step(&soc); /* BX LR 恢复线程上下文。 */
+    assert(soc.cpu.exception_number == 0u);
+    assert(soc.cpu.r[CORTEX_M0_SP] == 0x20000C00u);
+    py32_soc_destroy(&soc);
+
+    puts("foundation tests passed");
+    return 0;
+}
