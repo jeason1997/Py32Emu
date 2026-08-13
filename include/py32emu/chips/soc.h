@@ -25,7 +25,7 @@ typedef struct {
     Py32Gpio gpioa, gpiob, gpiof;
     Py32System system;
     Py32Usart usart1;
-    Py32Timer tim16;
+    Py32Timer tim1, tim16;
     Py32Spi spi1;
     Py32I2c i2c1;
     uint8_t *flash;

@@ -67,6 +67,7 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_gpio_reset(&soc->gpiob, &soc->rcc.iopenr, 1u << 1);
     py32_gpio_reset(&soc->gpiof, &soc->rcc.iopenr, 1u << 5);
     py32_usart_reset(&soc->usart1, &soc->rcc.apbenr2, 1u << 14);
+    py32_timer_reset(&soc->tim1, &soc->rcc.apbenr2, 1u << 11);
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
@@ -100,6 +101,9 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_device(&soc->bus, "usart1", 0x40013800u, 0x1Cu,
                              py32_usart_read, py32_usart_write,
                              &soc->usart1) ||
+        !py32_bus_add_device(&soc->bus, "tim1", 0x40012C00u, 0x54u,
+                             py32_timer_read, py32_timer_write,
+                             &soc->tim1) ||
         !py32_bus_add_device(&soc->bus, "tim16", 0x40014400u, 0x54u,
                              py32_timer_read, py32_timer_write,
                              &soc->tim16) ||
@@ -139,6 +143,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_gpio_reset(&soc->gpiob, &soc->rcc.iopenr, 1u << 1);
     py32_gpio_reset(&soc->gpiof, &soc->rcc.iopenr, 1u << 5);
     py32_usart_reset(&soc->usart1, &soc->rcc.apbenr2, 1u << 14);
+    py32_timer_reset(&soc->tim1, &soc->rcc.apbenr2, 1u << 11);
     py32_timer_reset(&soc->tim16, &soc->rcc.apbenr2, 1u << 17);
     py32_spi_reset(&soc->spi1, &soc->rcc.apbenr2, 1u << 12);
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
@@ -162,6 +167,8 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
     {
         CortexM0StepResult result = cortex_m0_step(&soc->cpu);
         py32_system_tick(&soc->system, result.cycles);
+        if (py32_timer_tick(&soc->tim1, result.cycles))
+            soc->system.nvic_pending |= 1u << 13;
         if (py32_timer_tick(&soc->tim16, result.cycles))
             soc->system.nvic_pending |= 1u << 21;
         if (py32_spi_irq_pending(&soc->spi1))

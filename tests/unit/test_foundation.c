@@ -176,7 +176,13 @@ int main(void)
         assert(received == 0x11u);
     }
     assert(py32_bus_write(&soc.bus, 0x40021040u, 4,
-                          (1u << 14) | (1u << 17)));
+                          (1u << 11) | (1u << 14) | (1u << 17)));
+    assert(py32_bus_write(&soc.bus, 0x40012C28u, 4, 0u));
+    assert(py32_bus_write(&soc.bus, 0x40012C2Cu, 4, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40012C0Cu, 4, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40012C00u, 4, 1u));
+    assert(py32_timer_tick(&soc.tim1, 2u));
+    assert((soc.tim1.reg[4] & 1u) != 0u);
     assert(py32_bus_write(&soc.bus, 0x40014428u, 4, 1u)); /* PSC=1 */
     assert(py32_bus_write(&soc.bus, 0x4001442Cu, 4, 2u)); /* ARR=2 */
     assert(py32_bus_write(&soc.bus, 0x4001440Cu, 4, 1u)); /* UIE */

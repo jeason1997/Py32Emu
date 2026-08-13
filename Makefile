@@ -55,6 +55,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_official_gpio.sh
 	sh tests/integration/test_official_usart.sh
 	sh tests/integration/test_official_tim16.sh
+	sh tests/integration/test_official_tim1.sh
 	sh tests/integration/test_hello_world.sh
 	sh tests/integration/test_official_spi.sh
 	sh tests/integration/test_official_i2c.sh

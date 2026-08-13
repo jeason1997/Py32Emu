@@ -90,6 +90,10 @@ int main(int argc, char **argv)
                            : "step-limit");
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",
            soc.gpioa.moder, soc.gpioa.odr);
+    if ((soc.rcc.apbenr2 & (1u << 11)) != 0u)
+        printf("TIM1: CNT=%u PSC=%u ARR=%u SR=0x%X\n",
+               (unsigned)soc.tim1.reg[9], (unsigned)soc.tim1.reg[10],
+               (unsigned)soc.tim1.reg[11], (unsigned)soc.tim1.reg[4]);
     if (soc.usart1.tx_count > 0u) {
         size_t n;
         printf("USART1 TX (%zu):", soc.usart1.tx_count);
