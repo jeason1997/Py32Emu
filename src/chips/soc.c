@@ -53,6 +53,7 @@ bool py32_soc_configure(Py32Soc *soc,
     /* 擦除态 Flash 为全 1，固件不必覆盖完整器件容量。 */
     memset(soc->flash, 0xFF, description->flash_size);
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
+    memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     /* 工厂校准区中固件常用的 Flash 容量字段，单位 KiB。 */
     soc->system_memory[0xFFCu] = (uint8_t)(description->flash_size / 1024u);
     memcpy(soc->flash + (firmware->load_address - description->flash_base),
@@ -75,6 +76,9 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "system-memory", 0x1FFF0000u,
                              soc->system_memory,
                              sizeof(soc->system_memory), true) ||
+        !py32_bus_add_memory(&soc->bus, "flash-registers", 0x40022000u,
+                             soc->flash_registers,
+                             sizeof(soc->flash_registers), false) ||
         !py32_bus_add_device(&soc->bus, "rcc", 0x40021000u, 0x64u,
                              py32_rcc_read, py32_rcc_write, &soc->rcc) ||
         !py32_bus_add_device(&soc->bus, "gpioa", 0x50000000u, 0x2Cu,
@@ -113,6 +117,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
         return false;
     }
     memset(soc->sram, 0, soc->description->sram_size);
+    memset(soc->flash_registers, 0, sizeof(soc->flash_registers));
     py32_rcc_reset(&soc->rcc);
     py32_gpio_reset(&soc->gpioa, &soc->rcc.iopenr, 1u << 0);
     py32_gpio_reset(&soc->gpiob, &soc->rcc.iopenr, 1u << 1);

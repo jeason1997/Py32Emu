@@ -50,6 +50,7 @@ integration-test: $(TARGET)
 	sh tests/integration/test_minimal_firmware.sh
 	sh tests/integration/test_official_gpio.sh
 	sh tests/integration/test_official_usart.sh
+	sh tests/integration/test_official_tim16.sh
 
 test: unit-test integration-test
 

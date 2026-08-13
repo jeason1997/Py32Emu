@@ -27,6 +27,7 @@ typedef struct {
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
+    uint8_t flash_registers[0x124];
 } Py32Soc;
 
 void py32_soc_init(Py32Soc *soc);
