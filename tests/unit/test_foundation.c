@@ -95,6 +95,7 @@ int main(void)
     assert(py32_chip_by_name("py32f002a-32k")->flash_size == 32u * 1024u);
     assert(py32_chip_by_name("py32f002a-32k")->sram_size == 4u * 1024u);
     assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC));
+    assert(py32_chip_has_peripheral(chip, PY32_PERIPHERAL_LPTIM1));
     py32_firmware_image_init(&image);
     assert(py32_firmware_load_hex(&image, "tests/fixtures/minimal.hex",
                                   chip->flash_base, chip->flash_size,
@@ -213,6 +214,19 @@ int main(void)
     assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0x12345678u));
     assert(py32_bus_read(&soc.bus, 0x08002000u, 4u, &value));
     assert(value == 0x12345678u);
+    /* LPTIM1 使用独立低速时钟和预分频，在自动重装匹配时请求 IRQ17。 */
+    assert(py32_bus_write(&soc.bus, 0x4002103Cu, 4u,
+                          soc.rcc.apbenr1 | (1u << 31)));
+    assert(py32_bus_write(&soc.bus, 0x40007C0Cu, 4u, 7u << 9));
+    assert(py32_bus_write(&soc.bus, 0x40007C18u, 4u, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40007C08u, 4u, 1u << 1));
+    assert(py32_bus_write(&soc.bus, 0x40007C10u, 4u, 3u));
+    assert(!py32_lptim_tick(&soc.lptim1, 187499u, 24000000u, 32768u));
+    assert(py32_lptim_tick(&soc.lptim1, 1u, 24000000u, 32768u));
+    assert(soc.lptim1.match_count == 1u &&
+           (soc.lptim1.isr & (1u << 1)) != 0u);
+    assert(py32_bus_write(&soc.bus, 0x40007C04u, 4u, 1u << 1));
+    assert(soc.lptim1.isr == 0u);
     assert(py32_bus_write(&soc.bus, 0x08002000u, 4u, 0xFFFFFFFFu));
     assert(py32_bus_read(&soc.bus, 0x08002000u, 4u, &value));
     assert(value == 0x12345678u);

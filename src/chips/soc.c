@@ -14,6 +14,15 @@ static bool has(const Py32Soc *soc, uint32_t peripheral)
     return py32_chip_has_peripheral(soc->description, peripheral) != 0;
 }
 
+static uint32_t lptim_clock_hz(const Py32Soc *soc)
+{
+    uint32_t selection = (soc->rcc.ccipr >> 18) & 3u;
+    if (selection == 0u) return soc->description->reset_clock_hz;
+    if (selection == 1u && (soc->rcc.csr & (1u << 1)) != 0u) return 32768u;
+    if (selection == 3u && (soc->rcc.bdcr & (1u << 1)) != 0u) return 32768u;
+    return 0u;
+}
+
 void py32_soc_init(Py32Soc *soc)
 {
     memset(soc, 0, sizeof(*soc));
@@ -59,6 +68,7 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->flash, 0xFF, description->flash_size);
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
+    memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -81,7 +91,8 @@ bool py32_soc_configure(Py32Soc *soc,
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
     py32_iwdg_reset(&soc->iwdg);
     py32_flash_reset(&soc->flash_controller, soc->flash,
-                     description->flash_size, 128u);
+                     description->flash_size, description->flash_page_size);
+    py32_lptim_reset(&soc->lptim1, &soc->rcc.apbenr1, 1u << 31);
     /* Cortex-M0+ 复位时 Code 区 0x00000000 是主 Flash 的只读别名。 */
     if (!py32_bus_add_device(&soc->bus, "flash-alias", 0x00000000u,
                              description->flash_size, py32_flash_memory_read,
@@ -98,6 +109,9 @@ bool py32_soc_configure(Py32Soc *soc,
                              0x124u, py32_flash_control_read,
                              py32_flash_control_write,
                              &soc->flash_controller) ||
+        !py32_bus_add_memory(&soc->bus, "pwr", 0x40007000u,
+                             soc->pwr_registers,
+                             sizeof(soc->pwr_registers), false) ||
         (has(soc, PY32_PERIPHERAL_EXTI) &&
          !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
@@ -146,7 +160,11 @@ bool py32_soc_configure(Py32Soc *soc,
                              py32_crc_read, py32_crc_write, &soc->crc)) ||
         (has(soc, PY32_PERIPHERAL_IWDG) &&
          !py32_bus_add_device(&soc->bus, "iwdg", 0x40003000u, 0x10u,
-                             py32_iwdg_read, py32_iwdg_write, &soc->iwdg))) {
+                             py32_iwdg_read, py32_iwdg_write, &soc->iwdg)) ||
+        (has(soc, PY32_PERIPHERAL_LPTIM1) &&
+         !py32_bus_add_device(&soc->bus, "lptim1", 0x40007C00u, 0x20u,
+                             py32_lptim_read, py32_lptim_write,
+                             &soc->lptim1))) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
@@ -173,6 +191,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     }
     memset(soc->sram, 0, soc->description->sram_size);
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
+    memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -189,7 +208,9 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_crc_reset(&soc->crc, &soc->rcc.ahbenr, 1u << 12);
     py32_iwdg_reset(&soc->iwdg);
     py32_flash_reset(&soc->flash_controller, soc->flash,
-                     soc->description->flash_size, 128u);
+                     soc->description->flash_size,
+                     soc->description->flash_page_size);
+    py32_lptim_reset(&soc->lptim1, &soc->rcc.apbenr1, 1u << 31);
     py32_system_reset(&soc->system, &soc->cpu,
                       soc->description->reset_clock_hz,
                       soc->description->external_irq_count);
@@ -229,6 +250,11 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
         if (has(soc, PY32_PERIPHERAL_TIM16) &&
             py32_timer_tick(&soc->tim16, result.cycles))
             soc->system.nvic_pending |= 1u << 21;
+        if (has(soc, PY32_PERIPHERAL_LPTIM1) &&
+            py32_lptim_tick(&soc->lptim1, result.cycles,
+                            soc->description->reset_clock_hz,
+                            lptim_clock_hz(soc)))
+            soc->system.nvic_pending |= 1u << 17;
         if (has(soc, PY32_PERIPHERAL_SPI1) &&
             py32_spi_irq_pending(&soc->spi1))
             soc->system.nvic_pending |= 1u << 25;

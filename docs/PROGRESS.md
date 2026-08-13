@@ -1,5 +1,15 @@
 # Py32Emu 开发进度
 
+## 2026-08-13：LPTIM 低功耗唤醒阶段
+
+- 新增可复用 LPTIM1 模型和芯片能力位，支持 ISR/ICR/IER/CFGR/CR/ARR/CNT、单次启动、预分频和 ARRM 中断。
+- LPTIM 时钟依据 RCC CCIPR 选择 PCLK、LSI 或 LSE；独立低速时钟会在 CPU 执行 WFI 时继续推进。
+- 补充最小 PWR 寄存器窗口，使官方 HAL 可配置 STOP 模式；实际睡眠与唤醒仍由 Cortex-M0+ 和 NVIC 统一处理。
+- 官方 `LPTIM_WakeUp` 已在 WSL 编译运行，LSI 32768 Hz 经 128 分频、ARR=51，完成两次 IRQ17 唤醒及 PA5 回调翻转。
+- 单元测试覆盖计数时序、匹配标志、W1C 清除和中断请求；官方例程已加入 `make test`。
+
+当前总体完成度：约 94%。下一阶段处理 COMP 输入比较与 ADC_COMP 共享中断，并继续完成最终范围审计。
+
 ## 2026-08-13：FLASH 自编程阶段
 
 - 实现 PY32 FLASH 控制器模型，主存储区与 `0x00000000` 别名共享同一份 Flash 数据。

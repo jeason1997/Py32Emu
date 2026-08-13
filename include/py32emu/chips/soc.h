@@ -17,6 +17,7 @@
 #include "py32emu/peripherals/crc.h"
 #include "py32emu/peripherals/iwdg.h"
 #include "py32emu/peripherals/flash.h"
+#include "py32emu/peripherals/lptim.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -38,10 +39,12 @@ typedef struct {
     Py32Crc crc;
     Py32Iwdg iwdg;
     Py32Flash flash_controller;
+    Py32Lptim lptim1;
     uint8_t *flash;
     uint8_t *sram;
     uint8_t system_memory[4096];
     uint8_t syscfg_registers[0x88];
+    uint8_t pwr_registers[0x0C];
     uint32_t adc_common_ccr;
     uint32_t exti_irq_level;
     uint64_t reset_count;

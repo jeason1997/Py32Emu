@@ -135,6 +135,12 @@ int main(int argc, char **argv)
         printf("ADC1: DR=%u CHSELR=0x%X conversions=%llu\n",
                (unsigned)soc.adc1.dr, (unsigned)soc.adc1.chselr,
                (unsigned long long)soc.adc1.conversion_count);
+    if (py32_chip_has_peripheral(chip, PY32_PERIPHERAL_LPTIM1) &&
+        (soc.rcc.apbenr1 & (1u << 31)) != 0u)
+        printf("LPTIM1: CNT=%u ARR=%u ISR=0x%X matches=%llu\n",
+               (unsigned)soc.lptim1.cnt, (unsigned)soc.lptim1.arr,
+               (unsigned)soc.lptim1.isr,
+               (unsigned long long)soc.lptim1.match_count);
     if (py32_chip_has_peripheral(chip, PY32_PERIPHERAL_CRC) &&
         (soc.rcc.ahbenr & (1u << 12)) != 0u)
         printf("CRC: DR=0x%08X IDR=0x%02X\n",
