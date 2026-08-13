@@ -2,6 +2,7 @@
 #include "py32emu/chips/soc.h"
 #include "py32emu/core/bus.h"
 #include "py32emu/core/cortex_m0.h"
+#include "py32emu/core/disassembler.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -58,6 +59,14 @@ int main(void)
     Py32FirmwareImage image;
     char error[128];
     uint8_t program[96];
+    char assembly[96];
+
+    assert(py32_thumb_disassemble(0x08000100u, 0x2005u, 0u,
+                                  assembly, sizeof(assembly)) == 1u);
+    assert(strcmp(assembly, "movs r0, #5") == 0);
+    assert(py32_thumb_disassemble(0x08000100u, 0xF000u, 0xF800u,
+                                  assembly, sizeof(assembly)) == 2u);
+    assert(strncmp(assembly, "bl 0x", 5u) == 0);
 
     py32_bus_init(&bus);
     assert(py32_bus_add_memory(&bus, "flash", 0x08000000u,

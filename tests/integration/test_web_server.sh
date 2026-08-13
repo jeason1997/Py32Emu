@@ -27,7 +27,7 @@ test "$ready" = true
 "$curl_runtime" -fsS -X POST -H 'Content-Type: application/json' \
     -d '{"firmware":"examples/hello_world/build/hello_world.elf","chip":"py32f002ax5"}' \
     "http://127.0.0.1:$port/api/load" |
-    python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["ok"] and len(s["registers"]) == 16'
+    python3 -c 'import json,sys; s=json.load(sys.stdin); assert s["ok"] and len(s["registers"]) == 16 and len(s["disassembly"]) == 12'
 "$curl_runtime" -fsS -X POST -H 'Content-Type: application/json' \
     -d '{"command":"step"}' "http://127.0.0.1:$port/api/command" |
     python3 -c 'import json,sys; assert json.load(sys.stdin)["cycles"] > 0'

@@ -1,5 +1,6 @@
 #include "py32emu/chips/chip.h"
 #include "py32emu/chips/soc.h"
+#include "py32emu/core/disassembler.h"
 #include "py32emu/firmware/image.h"
 
 #include <inttypes.h>
@@ -60,6 +61,38 @@ static bool is_breakpoint(uint32_t address)
     return false;
 }
 
+static void disassembly_json(void)
+{
+    uint32_t address = soc.cpu.r[CORTEX_M0_PC];
+    unsigned rows = 0u;
+    address = address >= 8u ? (address - 8u) & ~1u : address & ~1u;
+    fputs(",\"disassembly\":[", stdout);
+    while (rows < 12u) {
+        uint32_t raw, next = 0u;
+        char assembly[96];
+        unsigned halfwords;
+        const Py32FirmwareSymbol *symbol;
+        if (!py32_bus_read(&soc.bus, address, 2u, &raw)) break;
+        (void)py32_bus_read(&soc.bus, address + 2u, 2u, &next);
+        halfwords = py32_thumb_disassemble(address, (uint16_t)raw,
+                                            (uint16_t)next,
+                                            assembly, sizeof(assembly));
+        if (rows != 0u) putchar(',');
+        printf("{\"address\":%u,\"opcode\":%u,\"text\":", address, raw);
+        json_string(assembly);
+        symbol = py32_firmware_find_symbol(&image, address);
+        if (symbol != NULL) {
+            fputs(",\"symbol\":", stdout);
+            json_string(symbol->name);
+            printf(",\"symbolOffset\":%u", address - symbol->address);
+        }
+        putchar('}');
+        address += halfwords * 2u;
+        ++rows;
+    }
+    putchar(']');
+}
+
 static void state_json(void)
 {
     unsigned i;
@@ -87,11 +120,23 @@ static void state_json(void)
     printf("],\"gpio\":{\"A\":{\"moder\":%u,\"idr\":%u,\"odr\":%u},"
            "\"B\":{\"moder\":%u,\"idr\":%u,\"odr\":%u},"
            "\"F\":{\"moder\":%u,\"idr\":%u,\"odr\":%u}},"
-           "\"usartTxCount\":%zu}",
+           "\"usartTxCount\":%zu,\"usartTx\":[",
            soc.gpioa.moder, py32_gpio_input_data(&soc.gpioa), soc.gpioa.odr,
            soc.gpiob.moder, py32_gpio_input_data(&soc.gpiob), soc.gpiob.odr,
            soc.gpiof.moder, py32_gpio_input_data(&soc.gpiof), soc.gpiof.odr,
            soc.usart1.tx_count);
+    for (i = 0; i < soc.usart1.tx_count; ++i) {
+        if (i != 0u) putchar(',');
+        printf("%u", soc.usart1.tx[i]);
+    }
+    fputs("],\"breakpoints\":[", stdout);
+    for (i = 0; i < breakpoint_count; ++i) {
+        if (i != 0u) putchar(',');
+        printf("%u", breakpoints[i]);
+    }
+    putchar(']');
+    disassembly_json();
+    putchar('}');
     putchar('\n');
     fflush(stdout);
 }
@@ -182,6 +227,20 @@ static void memory_json(uint32_t address, unsigned count)
     fflush(stdout);
 }
 
+static void receive_usart(char *values)
+{
+    uint8_t bytes[256];
+    size_t count = 0u;
+    while (values != NULL && *values != '\0' && count < sizeof(bytes)) {
+        char *end;
+        unsigned long value = strtoul(values, &end, 0);
+        if (end == values || value > 255u) break;
+        bytes[count++] = (uint8_t)value;
+        values = *end == ',' ? end + 1 : NULL;
+    }
+    py32_usart_receive(&soc.usart1, bytes, count);
+}
+
 int main(void)
 {
     char line[2048];
@@ -220,6 +279,18 @@ int main(void)
             char *count = field(&cursor);
             memory_json((uint32_t)strtoul(address, NULL, 0),
                         count != NULL ? (unsigned)strtoul(count, NULL, 0) : 64u);
+        } else if (strcmp(command, "gpio") == 0) {
+            char *port = field(&cursor), *pin = field(&cursor);
+            char *driven = field(&cursor), *high = field(&cursor);
+            py32_soc_set_gpio_input(&soc,
+                port != NULL ? (unsigned)strtoul(port, NULL, 0) : 0u,
+                pin != NULL ? (unsigned)strtoul(pin, NULL, 0) : 0u,
+                driven != NULL && strtoul(driven, NULL, 0) != 0u,
+                high != NULL && strtoul(high, NULL, 0) != 0u);
+            state_json();
+        } else if (strcmp(command, "usart_rx") == 0) {
+            receive_usart(field(&cursor));
+            state_json();
         } else error_json("未知调试命令");
     }
     py32_soc_destroy(&soc);

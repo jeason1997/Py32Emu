@@ -15,13 +15,18 @@ function render(state) {
     `<div><small>xPSR</small><b>${hex(state.xpsr)}</b></div><div><small>CONTROL</small><b>${hex(state.control)}</b></div>`;
   $("gpio").innerHTML = Object.entries(state.gpio).map(([port, v]) =>
     `<article><b>GPIO${port}</b><span>ODR ${hex(v.odr,4)}</span><span>IDR ${hex(v.idr,4)}</span></article>`).join("");
+  $("disassembly").innerHTML = state.disassembly.map(row => `<div class="${row.address === state.pc ? "current" : ""}"><span>${hex(row.address)}</span><code>${row.text}</code><small>${row.symbol ? `${row.symbol}+0x${row.symbolOffset.toString(16)}` : ""}</small></div>`).join("");
+  $("terminal").textContent = new TextDecoder().decode(Uint8Array.from(state.usartTx));
+  $("breakpointList").textContent = state.breakpoints.length ? state.breakpoints.map(value => hex(value)).join(", ") : "未设置";
   $("error").textContent = "";
 }
 async function action(fn) { try { render(await fn()); } catch (error) { $("error").textContent = error.message; } }
 $("load").onclick = () => action(() => post("/api/load", { firmware: $("firmware").value, chip: $("chip").value }));
 document.querySelectorAll("[data-command]").forEach(button => button.onclick = () => action(() => post("/api/command", { command: button.dataset.command })));
 $("run").onclick = () => action(() => post("/api/command", { command: "run", steps: 10000 }));
-$("setBreakpoint").onclick = () => action(() => post("/api/command", { command: "breakpoints", addresses: [$("breakpoint").value] }));
+$("setBreakpoint").onclick = () => action(() => post("/api/command", { command: "breakpoints", addresses: $("breakpoint").value.split(",").map(value => value.trim()).filter(Boolean) }));
+document.querySelectorAll("[data-level]").forEach(button => button.onclick = () => action(() => post("/api/command", { command: "gpio", port: Number($("gpioPort").value), pin: Number($("gpioPin").value), driven: button.dataset.level !== "release", high: button.dataset.level === "1" })));
+$("sendTerminal").onclick = () => action(() => post("/api/command", { command: "usart_rx", bytes: [...new TextEncoder().encode($("terminalInput").value)] }));
 $("readMemory").onclick = async () => { try { const r = await post("/api/command", { command: "memory", address: $("memoryAddress").value, count: 64 });
   $("memory").textContent = r.data.map((v,i) => `${i%16===0 ? `\n${hex(r.address+i)}  ` : ""}${v.toString(16).padStart(2,"0")} `).join("").trim();
 } catch (error) { $("error").textContent = error.message; } };

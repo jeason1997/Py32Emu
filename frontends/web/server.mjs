@@ -82,6 +82,11 @@ const server = createServer(async (request, response) => {
         fields = ["breakpoints", (value.addresses || []).join(",")];
       else if (value.command === "memory")
         fields = ["memory", value.address || 0x20000000, value.count || 64];
+      else if (value.command === "gpio")
+        fields = ["gpio", value.port || 0, value.pin || 0,
+          value.driven === false ? 0 : 1, value.high ? 1 : 0];
+      else if (value.command === "usart_rx")
+        fields = ["usart_rx", (value.bytes || []).join(",")];
       else if (["step", "reset", "state"].includes(value.command))
         fields = [value.command];
       else return json(response, 400, { ok: false, error: "未知命令" });

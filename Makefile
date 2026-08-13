@@ -8,7 +8,7 @@ TARGET := $(BUILD_DIR)/py32emu
 TEST_TARGET := $(BUILD_DIR)/tests/test_foundation
 WEB_TARGET := $(BUILD_DIR)/py32emu-web-core
 
-CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c \
+CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c src/core/disassembler.c \
 	src/chips/chip.c src/chips/py32f002a.c src/chips/soc.c \
 	src/peripherals/rcc.c src/peripherals/gpio.c \
 	src/peripherals/system.c \
@@ -25,6 +25,7 @@ TARGET_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(CLI_SOURCES:.c=.o))
 TEST_OBJECTS := $(addprefix $(OBJ_DIR)/,tests/unit/test_foundation.o \
 	src/core/bus.o src/core/cortex_m0.o src/chips/chip.o \
+	src/core/disassembler.o \
 	src/chips/py32f002a.o src/chips/soc.o src/firmware/image.o)
 
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/rcc.o \
