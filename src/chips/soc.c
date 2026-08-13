@@ -9,6 +9,11 @@ static void set_error(char *error, size_t size, const char *message)
     if (error != NULL && size > 0u) snprintf(error, size, "%s", message);
 }
 
+static bool has(const Py32Soc *soc, uint32_t peripheral)
+{
+    return py32_chip_has_peripheral(soc->description, peripheral) != 0;
+}
+
 void py32_soc_init(Py32Soc *soc)
 {
     memset(soc, 0, sizeof(*soc));
@@ -87,44 +92,57 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "flash-registers", 0x40022000u,
                              soc->flash_registers,
                              sizeof(soc->flash_registers), false) ||
-        !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
+        (has(soc, PY32_PERIPHERAL_EXTI) &&
+         !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
-                             sizeof(soc->syscfg_registers), false) ||
-        !py32_bus_add_device(&soc->bus, "exti", 0x40021800u, 0x88u,
-                             py32_exti_read, py32_exti_write, &soc->exti) ||
-        !py32_bus_add_memory(&soc->bus, "adc-common", 0x40012708u,
+                             sizeof(soc->syscfg_registers), false)) ||
+        (has(soc, PY32_PERIPHERAL_EXTI) &&
+         !py32_bus_add_device(&soc->bus, "exti", 0x40021800u, 0x88u,
+                             py32_exti_read, py32_exti_write, &soc->exti)) ||
+        (has(soc, PY32_PERIPHERAL_ADC1) &&
+         !py32_bus_add_memory(&soc->bus, "adc-common", 0x40012708u,
                              (uint8_t *)&soc->adc_common_ccr,
-                             sizeof(soc->adc_common_ccr), false) ||
+                             sizeof(soc->adc_common_ccr), false)) ||
         !py32_bus_add_device(&soc->bus, "rcc", 0x40021000u, 0x64u,
                              py32_rcc_read, py32_rcc_write, &soc->rcc) ||
-        !py32_bus_add_device(&soc->bus, "gpioa", 0x50000000u, 0x2Cu,
-                             py32_gpio_read, py32_gpio_write, &soc->gpioa) ||
-        !py32_bus_add_device(&soc->bus, "gpiob", 0x50000400u, 0x2Cu,
-                             py32_gpio_read, py32_gpio_write, &soc->gpiob) ||
-        !py32_bus_add_device(&soc->bus, "gpiof", 0x50001400u, 0x2Cu,
-                             py32_gpio_read, py32_gpio_write, &soc->gpiof) ||
-        !py32_bus_add_device(&soc->bus, "usart1", 0x40013800u, 0x1Cu,
+        (has(soc, PY32_PERIPHERAL_GPIOA) &&
+         !py32_bus_add_device(&soc->bus, "gpioa", 0x50000000u, 0x2Cu,
+                             py32_gpio_read, py32_gpio_write, &soc->gpioa)) ||
+        (has(soc, PY32_PERIPHERAL_GPIOB) &&
+         !py32_bus_add_device(&soc->bus, "gpiob", 0x50000400u, 0x2Cu,
+                             py32_gpio_read, py32_gpio_write, &soc->gpiob)) ||
+        (has(soc, PY32_PERIPHERAL_GPIOF) &&
+         !py32_bus_add_device(&soc->bus, "gpiof", 0x50001400u, 0x2Cu,
+                             py32_gpio_read, py32_gpio_write, &soc->gpiof)) ||
+        (has(soc, PY32_PERIPHERAL_USART1) &&
+         !py32_bus_add_device(&soc->bus, "usart1", 0x40013800u, 0x1Cu,
                              py32_usart_read, py32_usart_write,
-                             &soc->usart1) ||
-        !py32_bus_add_device(&soc->bus, "tim1", 0x40012C00u, 0x54u,
+                             &soc->usart1)) ||
+        (has(soc, PY32_PERIPHERAL_TIM1) &&
+         !py32_bus_add_device(&soc->bus, "tim1", 0x40012C00u, 0x54u,
                              py32_timer_read, py32_timer_write,
-                             &soc->tim1) ||
-        !py32_bus_add_device(&soc->bus, "tim16", 0x40014400u, 0x54u,
+                             &soc->tim1)) ||
+        (has(soc, PY32_PERIPHERAL_TIM16) &&
+         !py32_bus_add_device(&soc->bus, "tim16", 0x40014400u, 0x54u,
                              py32_timer_read, py32_timer_write,
-                             &soc->tim16) ||
-        !py32_bus_add_device(&soc->bus, "spi1", 0x40013000u, 0x10u,
-                             py32_spi_read, py32_spi_write, &soc->spi1) ||
-        !py32_bus_add_device(&soc->bus, "i2c1", 0x40005400u, 0x24u,
-                             py32_i2c_read, py32_i2c_write, &soc->i2c1) ||
-        !py32_bus_add_device(&soc->bus, "adc1", 0x40012400u, 0x48u,
-                             py32_adc_read, py32_adc_write, &soc->adc1)) {
+                             &soc->tim16)) ||
+        (has(soc, PY32_PERIPHERAL_SPI1) &&
+         !py32_bus_add_device(&soc->bus, "spi1", 0x40013000u, 0x10u,
+                             py32_spi_read, py32_spi_write, &soc->spi1)) ||
+        (has(soc, PY32_PERIPHERAL_I2C1) &&
+         !py32_bus_add_device(&soc->bus, "i2c1", 0x40005400u, 0x24u,
+                             py32_i2c_read, py32_i2c_write, &soc->i2c1)) ||
+        (has(soc, PY32_PERIPHERAL_ADC1) &&
+         !py32_bus_add_device(&soc->bus, "adc1", 0x40012400u, 0x48u,
+                             py32_adc_read, py32_adc_write, &soc->adc1))) {
         set_error(error, error_size, "无法建立芯片内存映射");
         py32_soc_destroy(soc);
         return false;
     }
     cortex_m0_init(&soc->cpu, &soc->bus);
     py32_system_reset(&soc->system, &soc->cpu,
-                      description->reset_clock_hz);
+                      description->reset_clock_hz,
+                      description->external_irq_count);
     if (!py32_bus_add_device(&soc->bus, "system-control", 0xE000E000u,
                              0x1000u, py32_system_read,
                              py32_system_write, &soc->system)) {
@@ -158,7 +176,8 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     py32_i2c_reset(&soc->i2c1, &soc->rcc.apbenr1, 1u << 21);
     py32_adc_reset(&soc->adc1, &soc->rcc.apbenr2, 1u << 20);
     py32_system_reset(&soc->system, &soc->cpu,
-                      soc->description->reset_clock_hz);
+                      soc->description->reset_clock_hz,
+                      soc->description->external_irq_count);
     soc->bus.faulted = false;
     if (!cortex_m0_reset(&soc->cpu, 0x00000000u)) {
         set_error(error, error_size, "复位向量无效或不可读");
@@ -177,18 +196,24 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
     {
         CortexM0StepResult result = cortex_m0_step(&soc->cpu);
         py32_system_tick(&soc->system, result.cycles);
-        if (py32_timer_tick(&soc->tim1, result.cycles))
+        if (has(soc, PY32_PERIPHERAL_TIM1) &&
+            py32_timer_tick(&soc->tim1, result.cycles))
             soc->system.nvic_pending |= 1u << 13;
-        if (py32_timer_tick(&soc->tim16, result.cycles))
+        if (has(soc, PY32_PERIPHERAL_TIM16) &&
+            py32_timer_tick(&soc->tim16, result.cycles))
             soc->system.nvic_pending |= 1u << 21;
-        if (py32_spi_irq_pending(&soc->spi1))
+        if (has(soc, PY32_PERIPHERAL_SPI1) &&
+            py32_spi_irq_pending(&soc->spi1))
             soc->system.nvic_pending |= 1u << 25;
-        if (py32_i2c_irq_pending(&soc->i2c1))
+        if (has(soc, PY32_PERIPHERAL_I2C1) &&
+            py32_i2c_irq_pending(&soc->i2c1))
             soc->system.nvic_pending |= 1u << 23;
-        if (py32_adc_irq_pending(&soc->adc1))
+        if (has(soc, PY32_PERIPHERAL_ADC1) &&
+            py32_adc_irq_pending(&soc->adc1))
             soc->system.nvic_pending |= 1u << 12;
         {
-            uint32_t level = py32_exti_irq_mask(&soc->exti);
+            uint32_t level = has(soc, PY32_PERIPHERAL_EXTI)
+                ? py32_exti_irq_mask(&soc->exti) : 0u;
             soc->system.nvic_pending |= level & ~soc->exti_irq_level;
             soc->exti_irq_level = level;
         }
@@ -202,13 +227,16 @@ void py32_soc_set_gpio_input(Py32Soc *soc, unsigned port, unsigned pin,
     Py32Gpio *gpio;
     uint32_t before, after;
     if (soc == NULL || pin >= 16u) return;
-    gpio = port == 0u ? &soc->gpioa : port == 1u ? &soc->gpiob
-           : port == 2u ? &soc->gpiof : NULL;
+    gpio = port == 0u && has(soc, PY32_PERIPHERAL_GPIOA) ? &soc->gpioa
+           : port == 1u && has(soc, PY32_PERIPHERAL_GPIOB) ? &soc->gpiob
+           : port == 2u && has(soc, PY32_PERIPHERAL_GPIOF) ? &soc->gpiof
+           : NULL;
     if (gpio == NULL) return;
     before = py32_gpio_input_data(gpio);
     py32_gpio_set_input(gpio, pin, driven, high);
     after = py32_gpio_input_data(gpio);
-    py32_exti_input(&soc->exti, port, pin,
-                    (before & (1u << pin)) != 0u,
-                    (after & (1u << pin)) != 0u);
+    if (has(soc, PY32_PERIPHERAL_EXTI))
+        py32_exti_input(&soc->exti, port, pin,
+                        (before & (1u << pin)) != 0u,
+                        (after & (1u << pin)) != 0u);
 }

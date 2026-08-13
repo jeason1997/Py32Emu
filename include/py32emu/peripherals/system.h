@@ -14,10 +14,11 @@ typedef struct {
     uint32_t icsr;
     uint32_t scb_scr, scb_ccr, scb_shp[2], scb_shcsr;
     bool systick_pending;
+    unsigned external_irq_count;
 } Py32System;
 
 void py32_system_reset(Py32System *system, CortexM0 *cpu,
-                       uint32_t clock_hz);
+                       uint32_t clock_hz, unsigned external_irq_count);
 bool py32_system_read(void *context, uint32_t offset, unsigned size,
                       uint32_t *value);
 bool py32_system_write(void *context, uint32_t offset, unsigned size,

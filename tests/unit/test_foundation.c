@@ -56,6 +56,8 @@ int main(void)
     I2cTest i2c_test = {0};
     CortexM0 cpu;
     Py32Soc soc;
+    Py32Soc trimmed_soc;
+    Py32ChipDescription trimmed_chip;
     Py32FirmwareImage image;
     char error[128];
     uint8_t program[96];
@@ -161,6 +163,26 @@ int main(void)
     image.data = program;
     image.size = sizeof(program);
     image.load_address = chip->flash_base;
+    trimmed_chip = *chip;
+    trimmed_chip.name = "test-minimal";
+    trimmed_chip.peripherals = PY32_PERIPHERAL_GPIOA;
+    trimmed_chip.external_irq_count = 8u;
+    py32_soc_init(&trimmed_soc);
+    assert(py32_soc_configure(&trimmed_soc, &trimmed_chip, &image,
+                              error, sizeof(error)));
+    assert(py32_soc_reset(&trimmed_soc, error, sizeof(error)));
+    assert(py32_bus_read(&trimmed_soc.bus, 0x50000000u, 4u, &value));
+    assert(!py32_bus_read(&trimmed_soc.bus, 0x50000400u, 4u, &value));
+    assert(!py32_bus_read(&trimmed_soc.bus, 0x40013800u, 4u, &value));
+    assert(!py32_bus_read(&trimmed_soc.bus, 0x40012400u, 4u, &value));
+    assert(py32_bus_write(&trimmed_soc.bus, 0xE000E100u, 4u,
+                          (1u << 3) | (1u << 12)));
+    assert(py32_bus_read(&trimmed_soc.bus, 0xE000E100u, 4u, &value));
+    assert(value == (1u << 3));
+    py32_soc_set_gpio_input(&trimmed_soc, 1u, 2u, true, true);
+    assert(py32_gpio_input_data(&trimmed_soc.gpiob) == 0u);
+    py32_soc_destroy(&trimmed_soc);
+
     assert(py32_soc_configure(&soc, chip, &image, error, sizeof(error)));
     assert(py32_soc_reset(&soc, error, sizeof(error)));
     soc.cpu.r[1] = chip->sram_base;

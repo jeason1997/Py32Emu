@@ -13,7 +13,8 @@ function render(state) {
   $("exception").textContent = state.exception;
   $("registers").innerHTML = state.registers.map((v, i) => `<div><small>R${i}</small><b>${hex(v)}</b></div>`).join("") +
     `<div><small>xPSR</small><b>${hex(state.xpsr)}</b></div><div><small>CONTROL</small><b>${hex(state.control)}</b></div>`;
-  $("gpio").innerHTML = Object.entries(state.gpio).map(([port, v]) =>
+  const gpioBits = { A: 1, B: 2, F: 4 };
+  $("gpio").innerHTML = Object.entries(state.gpio).filter(([port]) => state.peripherals & gpioBits[port]).map(([port, v]) =>
     `<article><b>GPIO${port}</b><span>ODR ${hex(v.odr,4)}</span><span>IDR ${hex(v.idr,4)}</span></article>`).join("");
   $("disassembly").innerHTML = state.disassembly.map(row => `<div class="${row.address === state.pc ? "current" : ""}"><span>${hex(row.address)}</span><code>${row.text}</code><small>${row.symbol ? `${row.symbol}+0x${row.symbolOffset.toString(16)}` : ""}</small></div>`).join("");
   $("terminal").textContent = new TextDecoder().decode(Uint8Array.from(state.usartTx));

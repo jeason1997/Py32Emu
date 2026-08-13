@@ -4,6 +4,13 @@
 
 enum { SYST_ENABLE = 1u, SYST_TICKINT = 2u, SYST_COUNTFLAG = 1u << 16 };
 
+static uint32_t irq_mask(const Py32System *s)
+{
+    return s->external_irq_count >= 32u ? UINT32_MAX
+        : s->external_irq_count == 0u ? 0u
+        : (1u << s->external_irq_count) - 1u;
+}
+
 static uint8_t exception_priority(const Py32System *s, unsigned exception)
 {
     if (exception == 0u) return 0xFFu;
@@ -18,10 +25,12 @@ static uint8_t exception_priority(const Py32System *s, unsigned exception)
 }
 
 void py32_system_reset(Py32System *system, CortexM0 *cpu,
-                       uint32_t clock_hz)
+                       uint32_t clock_hz, unsigned external_irq_count)
 {
     memset(system, 0, sizeof(*system));
     system->cpu = cpu;
+    system->external_irq_count = external_irq_count > 32u
+        ? 32u : external_irq_count;
     /* TENMS 保存 10 ms 所需周期数，NOREF/SKEW 均为 0。 */
     system->syst_calib = clock_hz / 100u;
 }
@@ -36,17 +45,18 @@ bool py32_system_read(void *context, uint32_t offset, unsigned size,
     case 0x014: *value = s->syst_rvr; break;
     case 0x018: *value = s->syst_cvr; break;
     case 0x01C: *value = s->syst_calib; break;
-    case 0x100: *value = s->nvic_enable; break;
-    case 0x180: *value = s->nvic_enable; break;
-    case 0x200: *value = s->nvic_pending; break;
-    case 0x280: *value = s->nvic_pending; break;
+    case 0x100: *value = s->nvic_enable & irq_mask(s); break;
+    case 0x180: *value = s->nvic_enable & irq_mask(s); break;
+    case 0x200: *value = s->nvic_pending & irq_mask(s); break;
+    case 0x280: *value = s->nvic_pending & irq_mask(s); break;
     case 0x300:
         *value = 0u;
         {
             unsigned depth;
             for (depth = 0; depth < s->cpu->exception_depth; ++depth) {
                 unsigned exception = s->cpu->exception_stack[depth];
-                if (exception >= 16u && exception < 48u)
+                if (exception >= 16u &&
+                    exception < 16u + s->external_irq_count)
                     *value |= 1u << (exception - 16u);
             }
         }
@@ -87,9 +97,9 @@ bool py32_system_write(void *context, uint32_t offset, unsigned size,
     case 0x010: s->syst_csr = value & 7u; break;
     case 0x014: s->syst_rvr = value & 0x00FFFFFFu; break;
     case 0x018: s->syst_cvr = 0; s->syst_csr &= ~SYST_COUNTFLAG; break;
-    case 0x100: s->nvic_enable |= value; break;
+    case 0x100: s->nvic_enable |= value & irq_mask(s); break;
     case 0x180: s->nvic_enable &= ~value; break;
-    case 0x200: s->nvic_pending |= value; break;
+    case 0x200: s->nvic_pending |= value & irq_mask(s); break;
     case 0x280: s->nvic_pending &= ~value; break;
     case 0xD04:
         if (value & (1u << 25)) s->systick_pending = true;
@@ -140,7 +150,7 @@ bool py32_system_service_exception(Py32System *s)
             best_priority = priority;
         }
     }
-    for (irq = 0; irq < 32u; ++irq) {
+    for (irq = 0; irq < s->external_irq_count; ++irq) {
         uint32_t mask = 1u << irq;
         if ((s->nvic_enable & s->nvic_pending & mask) != 0u) {
             uint8_t priority = exception_priority(s, 16u + irq);

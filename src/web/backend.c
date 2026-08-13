@@ -104,10 +104,11 @@ static void state_json(void)
     }
     fputs(",\"chip\":", stdout);
     json_string(soc.description->name);
-    printf(",\"cycles\":%" PRIu64 ",\"pc\":%u,\"xpsr\":%u"
+    printf(",\"peripherals\":%u,\"cycles\":%" PRIu64 ",\"pc\":%u,\"xpsr\":%u"
            ",\"msp\":%u,\"psp\":%u,\"control\":%u"
            ",\"exception\":%u,\"stopped\":%s,\"stopReason\":",
-           soc.cpu.cycles, soc.cpu.r[CORTEX_M0_PC], soc.cpu.xpsr,
+           soc.description->peripherals, soc.cpu.cycles,
+           soc.cpu.r[CORTEX_M0_PC], soc.cpu.xpsr,
            soc.cpu.msp, soc.cpu.psp, soc.cpu.control,
            soc.cpu.exception_number, soc.cpu.stopped ? "true" : "false");
     json_string(cortex_m0_stop_reason_name(soc.cpu.stop_reason));
@@ -238,7 +239,9 @@ static void receive_usart(char *values)
         bytes[count++] = (uint8_t)value;
         values = *end == ',' ? end + 1 : NULL;
     }
-    py32_usart_receive(&soc.usart1, bytes, count);
+    if (py32_chip_has_peripheral(soc.description,
+                                 PY32_PERIPHERAL_USART1))
+        py32_usart_receive(&soc.usart1, bytes, count);
 }
 
 int main(void)
