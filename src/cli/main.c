@@ -119,6 +119,9 @@ int main(int argc, char **argv)
         py32_firmware_image_free(&image);
         return 1;
     }
+    /* --pulse 表示确定的高到低脉冲，不依赖固件是否配置内部上拉。 */
+    if (pulse)
+        py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, true);
     while (!soc.cpu.stopped && steps < limit) {
         if (pulse && steps == pulse_at)
             py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, false);
@@ -147,6 +150,9 @@ int main(int argc, char **argv)
                            : "step-limit");
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",
            soc.gpioa.moder, soc.gpioa.odr);
+    if (pulse)
+        printf("EXTI: RTSR=0x%X FTSR=0x%X IMR=0x%X PR=0x%X\n",
+               soc.exti.rtsr, soc.exti.ftsr, soc.exti.imr, soc.exti.pr);
     if (soc.reset_count != 0u)
         printf("RESET: IWDG=%llu CSR=0x%08X\n",
                (unsigned long long)soc.reset_count, soc.rcc.csr);

@@ -1,5 +1,9 @@
 # Web 调试界面
 
+调试台同时支持 GPIO 数字电平和 COMP 模拟输入。COMP 面板可向 PA1/COMP1 或
+PA3/COMP2 注入 0–5000mV，状态协议会返回两个 CSR 和当前注入值；这与 CLI 的
+`--analog PA1=1800 --analog-at N` 使用同一个 SoC 接口。
+
 Web 调试台复用 C11 编写的 `Py32Soc`，浏览器和 Node 服务不包含另一份 CPU 实现。
 因此 CLI、自动化测试和 Web 执行同一套 Cortex-M0+、总线与外设逻辑。
 

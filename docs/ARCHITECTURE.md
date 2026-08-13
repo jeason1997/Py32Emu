@@ -1,5 +1,12 @@
 # 架构
 
+当前 SoC 装配覆盖 RCC、GPIO、EXTI、USART、TIM1/TIM16、LPTIM、SPI、I2C、ADC、
+COMP、CRC、IWDG 和 FLASH 控制器。每个可选外设都有独立能力位；新增 PY32F003
+描述时，可以复用相同行为模型并只装配该型号实际存在的实例。CPU 层不包含 PY32 地址。
+
+Flash 页大小来自芯片描述，外设实例地址集中在 SoC 装配层。未来只有在第二个型号证实存在
+地址差异时，才将地址提取为描述表，避免为尚不存在的差异提前设计插件系统。
+
 ## 型号描述与装配
 
 芯片描述中的 `peripherals` 位图决定 GPIO、EXTI、USART、定时器、SPI、I2C 和 ADC
