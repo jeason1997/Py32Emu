@@ -3,6 +3,24 @@
 当前总体完成度：约 70%（按官方示例逐项矩阵口径）；该数字不代表完整芯片模拟，
 也不因第三方固件联调或性能优化自动上调。
 
+## 2026-11-04：实时音频与 1:1 系统时钟
+
+- CLI 新增 `--audio`、`--audio-rate`、`--realtime` 和 `--clock-hz`。
+  `--audio` 通过 PulseAudio 播放 TIM1 `CCR4` 的 22,050 Hz 样本，并以
+  100 ms 目标缓冲、1024 样本块写入；`--realtime` 只按墙钟推进，不依赖声卡。
+- 主循环按 1 ms 模拟时间切片，用 `CLOCK_MONOTONIC` 计算目标墙钟并睡眠；
+  音频写入阻塞时允许落后，不在寄存器事务中间强制同步。
+- 实测（NSF 固件，300M 指令，6.832 秒音频）：`--realtime` 为 6.832 秒模拟 /
+  6.833 秒墙钟（1.00x）；`--audio` 在 `make native` 下约 0.97–0.99x，
+  默认 `-O2` 约 0.8–0.95x，具体受宿主负载影响。用 PulseAudio
+  `RDPSink.monitor` 录制 11.45 秒，峰值 12675、RMS 约 1374，确认声音实际
+  进入系统音频 sink。
+- `make native` 目标封装 `-O3 -march=native -flto`；没有 PulseAudio 的构建
+  仍可正常编译，`--audio` 会明确报错并提示安装 `libpulse-dev`。
+- 边界：虚拟扬声器取 TIM1 `CCR4` 的固件写入值（等价理想重构），没有建模
+  PA0/PA1 的 PWM 方波、外部滤波/放大和模拟噪声；Windows 原生构建尚未接入
+  WinMM，当前通过 WSLg 的 PulseAudio 输出。
+
 ## 2026-11-04：WAV 音频导出
 
 - CLI 新增 `--wav FILE` 和 `--wav-rate Hz`：在 TIM16 采样中断启动后捕获

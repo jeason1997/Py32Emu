@@ -70,7 +70,13 @@ USART1 TX (13): 48 65 6C 6C 6F 20 57 6F 72 6C 64 0D 0A
 ./build/py32emu firmware.elf --analog PA1=1800 --analog-at 10000
 ./build/py32emu firmware.elf --chip py32f002a-32k
 ./build/py32emu firmware.elf --steps 300000000 --wav music.wav
+./build/py32emu firmware.elf --chip py32f002a-32k --audio --steps 300000000
+./build/py32emu firmware.elf --realtime --clock-hz 48000000 --steps 300000000
 ```
+
+`--audio` 在 Linux/WSLg 上通过 PulseAudio 实时播放；默认 22,050 Hz，
+可用 `--audio-rate` 指定。`--realtime` 只按墙钟推进，不输出声音。
+`--clock-hz` 指定固件运行时钟，本项目使用 48 MHz。
 
 `--wav` 在 TIM16 采样中断启动后记录 TIM1 `CCR4` 写入，生成 16 位单声道
 WAV；默认 22,050 Hz，可用 `--wav-rate` 指定。它记录的是固件写入的样本值，
@@ -85,13 +91,13 @@ WAV；默认 22,050 Hz，可用 `--wav-rate` 指定。它记录的是固件写�
 需要接近或超过 48 MHz 实时线时，可做本机优化构建：
 
 ```sh
-make clean
-make CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
+make native
 ```
 
-实测约 20.5–21.6 秒，即约 51–54M 周期/秒。`-march=native` 只适合本机，
-CI 和发布构建仍使用默认可移植参数。模拟器当前可导出 WAV，但还没有把音频
-实时输出到系统声卡；性能达标不等于已经可以实时听声。
+等价于使用 `-O3 -march=native -flto` 重新构建。实测约 20.5–21.6 秒，即约
+51–54M 周期/秒。`make native` 只适合本机，CI 和发布构建仍使用默认可移植参数。
+实时音频需要 PulseAudio（WSLg 已提供）；`--realtime` 实测约 1.00x，
+`--audio` 在 `make native` 下约 0.97–0.99x，默认构建约 0.8–0.95x。
 
 ## Web 调试台
 

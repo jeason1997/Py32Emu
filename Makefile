@@ -2,6 +2,15 @@ CC ?= gcc
 CPPFLAGS ?= -Iinclude
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2
 
+# 实时音频仅在宿主提供 PulseAudio simple API 时启用；没有该库时
+# `--audio` 会明确报错，默认构建和测试不受影响。
+PULSE_CFLAGS := $(shell pkg-config --cflags libpulse-simple 2>/dev/null)
+PULSE_LIBS := $(shell pkg-config --libs libpulse-simple 2>/dev/null)
+ifneq ($(PULSE_LIBS),)
+CPPFLAGS += -DPY32EMU_HAVE_PULSE $(PULSE_CFLAGS)
+CLI_LIBS += $(PULSE_LIBS)
+endif
+
 BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/py32emu
@@ -51,13 +60,13 @@ WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(WEB_SOURCES:.c=.o))
 DEPFILES += $(WEB_OBJECTS:.o=.d)
 
-.PHONY: all web-core run-web test unit-test integration-test clean
+.PHONY: all web-core run-web test unit-test integration-test clean native
 
 all: $(TARGET)
 
 $(TARGET): $(TARGET_OBJECTS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ $(CLI_LIBS)
 
 $(TEST_TARGET): $(TEST_OBJECTS)
 	@mkdir -p $(dir $@)
@@ -109,5 +118,10 @@ test: unit-test integration-test
 clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C examples/hello_world clean
+
+# 本机实时构建：48 MHz 逐周期模拟和音频输出需要宿主有足够余量。
+native:
+	$(MAKE) clean
+	$(MAKE) CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
 
 -include $(DEPFILES)
