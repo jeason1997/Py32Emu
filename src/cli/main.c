@@ -6,6 +6,66 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct {
+    Py32Soc *soc;
+    FILE *file;
+    uint64_t samples;
+    bool failed;
+} WavCapture;
+
+static bool wav_u16(FILE *file, uint16_t value)
+{
+    return fputc((int)(value & 0xFFu), file) != EOF &&
+           fputc((int)(value >> 8), file) != EOF;
+}
+
+static bool wav_u32(FILE *file, uint32_t value)
+{
+    return wav_u16(file, (uint16_t)(value & 0xFFFFu)) &&
+           wav_u16(file, (uint16_t)(value >> 16));
+}
+
+static bool wav_header(FILE *file, unsigned rate)
+{
+    static const char riff[] = "RIFF";
+    static const char wave[] = "WAVEfmt ";
+    static const char data[] = "data";
+    return fwrite(riff, 1u, 4u, file) == 4u && wav_u32(file, 0u) &&
+           fwrite(wave, 1u, 8u, file) == 8u && wav_u32(file, 16u) &&
+           wav_u16(file, 1u) && wav_u16(file, 1u) &&
+           wav_u32(file, rate) && wav_u32(file, rate * 2u) &&
+           wav_u16(file, 2u) && wav_u16(file, 16u) &&
+           fwrite(data, 1u, 4u, file) == 4u && wav_u32(file, 0u);
+}
+
+static void wav_capture_compare(void *context, unsigned channel,
+                                uint32_t value)
+{
+    WavCapture *capture = context;
+    int16_t pcm;
+    if (capture == NULL || channel != 4u || capture->failed) return;
+    /* 只在固件启动 TIM16 采样中断后记录；初始化阶段的中点写入忽略。 */
+    if ((capture->soc->tim1.reg[0] & 1u) == 0u ||
+        (capture->soc->tim16.reg[0] & 1u) == 0u) return;
+    if (value > 255u) value = 255u;
+    pcm = (int16_t)(((int32_t)value - 128) * 256);
+    if (fwrite(&pcm, sizeof(pcm), 1u, capture->file) != 1u) {
+        capture->failed = true;
+        return;
+    }
+    ++capture->samples;
+}
+
+static bool wav_finish(FILE *file, uint64_t samples)
+{
+    uint32_t data_size = samples > UINT32_MAX / 2u
+        ? UINT32_MAX & ~1u : (uint32_t)(samples * 2u);
+    if (fseek(file, 4L, SEEK_SET) != 0 || !wav_u32(file, 36u + data_size) ||
+        fseek(file, 40L, SEEK_SET) != 0 || !wav_u32(file, data_size) ||
+        fflush(file) != 0) return false;
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const Py32ChipDescription *chip = py32f002ax5_description();
@@ -20,11 +80,14 @@ int main(int argc, char **argv)
     bool analog = false;
     unsigned analog_port = 0u, analog_pin = 0u, analog_mv = 0u;
     uint64_t analog_at = 10000u;
+    const char *wav_path = NULL;
+    unsigned wav_rate = 22050u;
     int i;
     char error[160];
 
     if (argc < 2) {
-        fprintf(stderr, "用法: %s firmware [--chip 型号] [--steps N] [--trace]\n", argv[0]);
+        fprintf(stderr, "用法: %s firmware [--chip 型号] [--steps N] [--trace] "
+                        "[--wav 文件] [--wav-rate Hz]\n", argv[0]);
         return 2;
     }
     for (i = 2; i < argc; ++i) {
@@ -84,6 +147,17 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "--analog-at") == 0 && i + 1 < argc)
             analog_at = strtoull(argv[++i], NULL, 0);
+        else if (strcmp(argv[i], "--wav") == 0 && i + 1 < argc)
+            wav_path = argv[++i];
+        else if (strcmp(argv[i], "--wav-rate") == 0 && i + 1 < argc) {
+            char *end;
+            unsigned long rate = strtoul(argv[++i], &end, 10);
+            if (*end != '\0' || rate < 1000u || rate > 192000u) {
+                fprintf(stderr, "无效 WAV 采样率: %s\n", argv[i]);
+                return 2;
+            }
+            wav_rate = (unsigned)rate;
+        }
         else {
             fprintf(stderr, "未知参数: %s\n", argv[i]);
             return 2;
@@ -122,6 +196,20 @@ int main(int argc, char **argv)
     /* --pulse 表示确定的高到低脉冲，不依赖固件是否配置内部上拉。 */
     if (pulse)
         py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, true);
+    WavCapture capture = { &soc, NULL, 0u, false };
+    bool wav_error = false;
+    if (wav_path != NULL) {
+        capture.file = fopen(wav_path, "wb");
+        if (capture.file == NULL || !wav_header(capture.file, wav_rate)) {
+            fprintf(stderr, "无法创建 WAV 文件: %s\n", wav_path);
+            if (capture.file != NULL) fclose(capture.file);
+            py32_soc_destroy(&soc);
+            py32_firmware_image_free(&image);
+            return 1;
+        }
+        soc.tim1.compare_callback = wav_capture_compare;
+        soc.tim1.compare_context = &capture;
+    }
     while (!soc.cpu.stopped && steps < limit) {
         if (pulse && steps == pulse_at)
             py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, false);
@@ -148,6 +236,19 @@ int main(int argc, char **argv)
            soc.cpu.r[CORTEX_M0_PC],
            soc.cpu.stopped ? cortex_m0_stop_reason_name(soc.cpu.stop_reason)
                            : "step-limit");
+    if (wav_path != NULL) {
+        bool ok = !capture.failed && wav_finish(capture.file, capture.samples);
+        if (fclose(capture.file) != 0) ok = false;
+        soc.tim1.compare_callback = NULL;
+        if (ok)
+            printf("WAV: %s, %llu 样本, %.2f 秒 @ %u Hz\n", wav_path,
+                   (unsigned long long)capture.samples,
+                   (double)capture.samples / (double)wav_rate, wav_rate);
+        else {
+            fprintf(stderr, "WAV 写入失败: %s\n", wav_path);
+            wav_error = true;
+        }
+    }
     if (soc.bus.faulted)
         printf("BUS: 故障地址=0x%08X\n", soc.bus.fault_address);
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",
@@ -222,5 +323,5 @@ int main(int argc, char **argv)
     }
     py32_soc_destroy(&soc);
     py32_firmware_image_free(&image);
-    return 0;
+    return wav_error ? 1 : 0;
 }

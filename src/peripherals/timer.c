@@ -4,6 +4,7 @@
 
 enum { TIM_CR1 = 0, TIM_DIER = 3, TIM_SR = 4, TIM_EGR = 5,
        TIM_CNT = 9, TIM_PSC = 10, TIM_ARR = 11,
+       TIM_CCR3 = 15, TIM_CCR4 = 16,
        TIM_CR1_CEN = 1u, TIM_DIER_UIE = 1u, TIM_SR_UIF = 1u };
 
 static bool clocked(const Py32Timer *timer)
@@ -51,6 +52,11 @@ bool py32_timer_write(void *context, uint32_t offset, unsigned size,
         }
     } else {
         timer->reg[index] = size == 2u ? value & 0xFFFFu : value;
+        if (timer->compare_callback != NULL &&
+            (index == TIM_CCR3 || index == TIM_CCR4))
+            timer->compare_callback(timer->compare_context,
+                                    index == TIM_CCR3 ? 3u : 4u,
+                                    timer->reg[index]);
     }
     return true;
 }

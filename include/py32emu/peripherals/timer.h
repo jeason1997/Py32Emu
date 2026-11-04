@@ -4,11 +4,16 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef void (*Py32TimerCompareCallback)(void *context, unsigned channel,
+                                         uint32_t value);
+
 typedef struct {
     uint32_t reg[21];
     uint32_t prescaler_counter;
     const uint32_t *clock_enable_register;
     uint32_t clock_enable_mask;
+    Py32TimerCompareCallback compare_callback;
+    void *compare_context;
 } Py32Timer;
 
 void py32_timer_reset(Py32Timer *timer, const uint32_t *clock_register,

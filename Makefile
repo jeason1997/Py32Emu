@@ -99,6 +99,7 @@ integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_dual_stack.sh
 	sh tests/integration/test_thumb_control_flow.sh
 	sh tests/integration/test_hardfault_paths.sh
+	sh tests/integration/test_wav_export.sh
 	sh tests/integration/test_iwdg_reset.sh
 	sh tests/integration/test_web_backend.sh
 	sh tests/integration/test_web_server.sh

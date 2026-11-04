@@ -17,7 +17,7 @@ PY32F002A；CPU、总线和外设模型不保存具体型号容量，芯片描�
 - Flash/SRAM/系统存储器、Flash 页擦写、自编程和 BIN/HEX/ELF 加载。
 - RCC、GPIOA/B/F、EXTI、USART1、TIM1/TIM16、LPTIM1、SPI1、I2C1、
   ADC1、COMP1/2、CRC 和 IWDG。
-- CLI 单步/跟踪、GPIO 脉冲、模拟毫伏输入和外设状态输出。
+- CLI 单步/跟踪、GPIO 脉冲、模拟毫伏输入、外设状态输出和 WAV 音频导出。
 - Web 调试台：寄存器、符号反汇编、多断点、内存、GPIO、COMP 模拟输入和
   USART 终端。
 
@@ -69,7 +69,12 @@ USART1 TX (13): 48 65 6C 6C 6F 20 57 6F 72 6C 64 0D 0A
 ./build/py32emu firmware.elf --pulse PB2 --pulse-at 10000
 ./build/py32emu firmware.elf --analog PA1=1800 --analog-at 10000
 ./build/py32emu firmware.elf --chip py32f002a-32k
+./build/py32emu firmware.elf --steps 300000000 --wav music.wav
 ```
+
+`--wav` 在 TIM16 采样中断启动后记录 TIM1 `CCR4` 写入，生成 16 位单声道
+WAV；默认 22,050 Hz，可用 `--wav-rate` 指定。它记录的是固件写入的样本值，
+不是 PA0/PA1 引脚上的实际 PWM 波形。
 
 `py32f002ax5` 严格使用官方描述的 20 KiB Flash/3 KiB SRAM；经当前实物确认的
 隐藏容量器件可以显式选择 `py32f002a-32k`（32 KiB/4 KiB），两者不会混用容量边界。
@@ -85,8 +90,8 @@ make CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
 ```
 
 实测约 20.5–21.6 秒，即约 51–54M 周期/秒。`-march=native` 只适合本机，
-CI 和发布构建仍使用默认可移植参数。模拟器当前仍不输出音频，性能达标不等于
-已经可以实时听声。
+CI 和发布构建仍使用默认可移植参数。模拟器当前可导出 WAV，但还没有把音频
+实时输出到系统声卡；性能达标不等于已经可以实时听声。
 
 ## Web 调试台
 
