@@ -26,6 +26,9 @@ typedef struct {
 typedef struct {
     Py32BusRegion regions[PY32_BUS_MAX_REGIONS];
     size_t region_count;
+    /* 两路最近访问区域缓存：取指在 Flash、数据在 SRAM 时避免反复线性扫描。 */
+    Py32BusRegion *cache[2];
+    unsigned cache_next;
     uint32_t fault_address;
     bool faulted;
 } Py32Bus;

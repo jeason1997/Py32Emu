@@ -58,12 +58,27 @@ bool py32_timer_write(void *context, uint32_t offset, unsigned size,
 bool py32_timer_tick(Py32Timer *timer, unsigned cycles)
 {
     bool request = false;
+    uint32_t psc, arr;
     if (!clocked(timer) || (timer->reg[TIM_CR1] & TIM_CR1_CEN) == 0u)
         return false;
-    while (cycles-- > 0u) {
-        if (++timer->prescaler_counter > (timer->reg[TIM_PSC] & 0xFFFFu)) {
+    psc = timer->reg[TIM_PSC] & 0xFFFFu;
+    arr = timer->reg[TIM_ARR] & 0xFFFFu;
+    if (cycles == 1u) {
+        if (++timer->prescaler_counter > psc) {
             timer->prescaler_counter = 0;
-            if (timer->reg[TIM_CNT] >= (timer->reg[TIM_ARR] & 0xFFFFu)) {
+            if (timer->reg[TIM_CNT] >= arr) {
+                timer->reg[TIM_CNT] = 0;
+                timer->reg[TIM_SR] |= TIM_SR_UIF;
+                return (timer->reg[TIM_DIER] & TIM_DIER_UIE) != 0u;
+            }
+            ++timer->reg[TIM_CNT];
+        }
+        return false;
+    }
+    while (cycles-- > 0u) {
+        if (++timer->prescaler_counter > psc) {
+            timer->prescaler_counter = 0;
+            if (timer->reg[TIM_CNT] >= arr) {
                 timer->reg[TIM_CNT] = 0;
                 timer->reg[TIM_SR] |= TIM_SR_UIF;
                 if (timer->reg[TIM_DIER] & TIM_DIER_UIE) request = true;

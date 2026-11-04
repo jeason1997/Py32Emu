@@ -11,12 +11,22 @@ static Py32BusRegion *find_region(Py32Bus *bus, uint32_t address,
                                   unsigned size)
 {
     size_t i;
+    unsigned slot;
     uint64_t end = (uint64_t)address + size;
 
+    for (slot = 0; slot < 2u; ++slot) {
+        Py32BusRegion *region = bus->cache[slot];
+        if (region != NULL && address >= region->base &&
+            end <= (uint64_t)region->base + region->size) return region;
+    }
     for (i = 0; i < bus->region_count; ++i) {
         Py32BusRegion *region = &bus->regions[i];
         uint64_t region_end = (uint64_t)region->base + region->size;
-        if (address >= region->base && end <= region_end) return region;
+        if (address >= region->base && end <= region_end) {
+            bus->cache[bus->cache_next] = region;
+            bus->cache_next ^= 1u;
+            return region;
+        }
     }
     return NULL;
 }

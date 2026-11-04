@@ -74,6 +74,20 @@ USART1 TX (13): 48 65 6C 6C 6F 20 57 6F 72 6C 64 0D 0A
 `py32f002ax5` 严格使用官方描述的 20 KiB Flash/3 KiB SRAM；经当前实物确认的
 隐藏容量器件可以显式选择 `py32f002a-32k`（32 KiB/4 KiB），两者不会混用容量边界。
 
+## 性能
+
+默认 `-O2` 构建在 i7-14700F/WSL2 上执行 NSF 固件的 10 亿条指令约需 24–30 秒。
+需要接近或超过 48 MHz 实时线时，可做本机优化构建：
+
+```sh
+make clean
+make CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
+```
+
+实测约 20.5–21.6 秒，即约 51–54M 周期/秒。`-march=native` 只适合本机，
+CI 和发布构建仍使用默认可移植参数。模拟器当前仍不输出音频，性能达标不等于
+已经可以实时听声。
+
 ## Web 调试台
 
 ```sh
