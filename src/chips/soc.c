@@ -69,7 +69,6 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
-    memset(soc->dbg_registers, 0, sizeof(soc->dbg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -114,9 +113,6 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "pwr", 0x40007000u,
                              soc->pwr_registers,
                              sizeof(soc->pwr_registers), false) ||
-        !py32_bus_add_memory(&soc->bus, "dbgmcu", 0x40015800u,
-                             soc->dbg_registers,
-                             sizeof(soc->dbg_registers), false) ||
         (has(soc, PY32_PERIPHERAL_EXTI) &&
          !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
@@ -178,10 +174,6 @@ bool py32_soc_configure(Py32Soc *soc,
         py32_soc_destroy(soc);
         return false;
     }
-    py32_bus_set_fetch(&soc->bus, soc->flash,
-                       description->flash_base, description->flash_size);
-    py32_bus_set_data(&soc->bus, soc->sram,
-                      description->sram_base, description->sram_size);
     cortex_m0_init(&soc->cpu, &soc->bus);
     py32_system_reset(&soc->system, &soc->cpu,
                       description->reset_clock_hz,
@@ -205,7 +197,6 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     memset(soc->sram, 0, soc->description->sram_size);
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
-    memset(soc->dbg_registers, 0, sizeof(soc->dbg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -243,15 +234,11 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
         CortexM0StepResult empty = {0};
         return empty;
     }
-    /* 无挂起异常时跳过 NVIC 仲裁；有异常时仍由统一入口处理优先级。 */
-    if (!soc->cpu.primask &&
-        (soc->system.nvic_pending != 0u || soc->system.systick_pending))
-        py32_system_service_exception(&soc->system);
+    py32_system_service_exception(&soc->system);
     {
-        uint32_t peripherals = soc->description->peripherals;
         CortexM0StepResult result = cortex_m0_step(&soc->cpu);
         py32_system_tick(&soc->system, result.cycles);
-        if ((peripherals & PY32_PERIPHERAL_IWDG) && soc->iwdg.enabled &&
+        if (has(soc, PY32_PERIPHERAL_IWDG) &&
             py32_iwdg_tick(&soc->iwdg, result.cycles,
                            soc->description->reset_clock_hz,
                            (soc->rcc.csr & (1u << 1)) != 0u)) {
@@ -263,45 +250,28 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             }
             return result;
         }
-        /* 未开时钟或未启动的外设不会改变状态，跳过逐指令调用。 */
-        if ((peripherals & PY32_PERIPHERAL_TIM1) &&
-            (soc->rcc.apbenr2 & (1u << 11)) &&
-            (soc->tim1.reg[0] & 1u) &&
+        if (has(soc, PY32_PERIPHERAL_TIM1) &&
             py32_timer_tick(&soc->tim1, result.cycles))
             soc->system.nvic_pending |= 1u << 13;
-        if ((peripherals & PY32_PERIPHERAL_TIM16) &&
-            (soc->rcc.apbenr2 & (1u << 17)) &&
-            (soc->tim16.reg[0] & 1u) &&
+        if (has(soc, PY32_PERIPHERAL_TIM16) &&
             py32_timer_tick(&soc->tim16, result.cycles))
             soc->system.nvic_pending |= 1u << 21;
-        if ((peripherals & PY32_PERIPHERAL_LPTIM1) &&
-            (soc->rcc.apbenr1 & (1u << 31)) &&
-            (soc->lptim1.cr & 3u) == 3u &&
+        if (has(soc, PY32_PERIPHERAL_LPTIM1) &&
             py32_lptim_tick(&soc->lptim1, result.cycles,
                             soc->description->reset_clock_hz,
                             lptim_clock_hz(soc)))
             soc->system.nvic_pending |= 1u << 17;
-        if ((peripherals & PY32_PERIPHERAL_USART1) &&
-            (soc->rcc.apbenr2 & (1u << 14)) &&
-            (soc->usart1.cr1 & ((1u << 13) | (1u << 7) |
-                                (1u << 6) | (1u << 5))) != 0u &&
-            py32_usart_irq_pending(&soc->usart1))
-            soc->system.nvic_pending |= 1u << 27;
-        if ((peripherals & PY32_PERIPHERAL_SPI1) &&
-            (soc->rcc.apbenr2 & (1u << 12)) &&
+        if (has(soc, PY32_PERIPHERAL_SPI1) &&
             py32_spi_irq_pending(&soc->spi1))
             soc->system.nvic_pending |= 1u << 25;
-        if ((peripherals & PY32_PERIPHERAL_I2C1) &&
-            (soc->rcc.apbenr1 & (1u << 21)) &&
+        if (has(soc, PY32_PERIPHERAL_I2C1) &&
             py32_i2c_irq_pending(&soc->i2c1))
             soc->system.nvic_pending |= 1u << 23;
-        if ((peripherals & PY32_PERIPHERAL_ADC1) &&
-            (soc->rcc.apbenr2 & (1u << 20)) &&
+        if (has(soc, PY32_PERIPHERAL_ADC1) &&
             py32_adc_irq_pending(&soc->adc1))
             soc->system.nvic_pending |= 1u << 12;
         {
-            uint32_t level = (peripherals & PY32_PERIPHERAL_EXTI) &&
-                             soc->exti.imr != 0u
+            uint32_t level = has(soc, PY32_PERIPHERAL_EXTI)
                 ? py32_exti_irq_mask(&soc->exti) : 0u;
             soc->system.nvic_pending |= level & ~soc->exti_irq_level;
             soc->exti_irq_level = level;

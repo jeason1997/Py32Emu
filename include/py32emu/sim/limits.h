@@ -1,9 +1,0 @@
-#ifndef PY32EMU_SIM_LIMITS_H
-#define PY32EMU_SIM_LIMITS_H
-
-#define SIM_MAX_NETS 32u
-#define SIM_MAX_ENDPOINTS 4u
-#define SIM_MAX_DEVICES 16u
-#define SIM_MAX_PARTS 8u
-
-#endif

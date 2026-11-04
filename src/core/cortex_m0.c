@@ -355,10 +355,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         return out;
     }
     pc = cpu->r[CORTEX_M0_PC];
-    if (!py32_bus_fetch16(cpu->bus, pc, &raw)) {
-        raise_hardfault(cpu);
-        goto done;
-    }
+    if (!load(cpu, pc, 2, &raw)) goto done;
     op = (uint16_t)raw;
     cpu->last_pc = pc;
     cpu->last_instruction = op;
@@ -423,7 +420,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         rd = (op >> 8) & 7u;
         address = ((pc + 4u) & ~3u) + ((op & 0xFFu) << 2);
         if (load(cpu, address, 4, &value)) cpu->r[rd] = value;
-    } else if ((op & 0xF000u) == 0x5000u) {
+    } else if ((op & 0xF200u) == 0x5000u) {
         rm = (op >> 6) & 7u; rn = (op >> 3) & 7u; rd = op & 7u;
         address = cpu->r[rn] + cpu->r[rm];
         switch ((op >> 9) & 7u) {

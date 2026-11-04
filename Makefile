@@ -2,15 +2,6 @@ CC ?= gcc
 CPPFLAGS ?= -Iinclude
 CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -O2
 
-# 实时音频仅在宿主提供 PulseAudio simple API 时启用；没有该库时
-# `--audio` 会明确报错，默认构建和测试不受影响。
-PULSE_CFLAGS := $(shell pkg-config --cflags libpulse-simple 2>/dev/null)
-PULSE_LIBS := $(shell pkg-config --libs libpulse-simple 2>/dev/null)
-ifneq ($(PULSE_LIBS),)
-CPPFLAGS += -DPY32EMU_HAVE_PULSE $(PULSE_CFLAGS)
-CLI_LIBS += $(PULSE_LIBS)
-endif
-
 BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/py32emu
@@ -32,8 +23,6 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c src/core/disassembler.c \
 	src/peripherals/flash.c \
 	src/peripherals/lptim.c \
 	src/peripherals/comp.c \
-	src/sim/device.c src/sim/board.c src/sim/mcu.c \
-	src/sim/mcu/py32.c src/sim/devices/speaker.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
 WEB_SOURCES := src/web/backend.c
@@ -57,23 +46,18 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/iwdg.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/flash.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/lptim.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/comp.o
-TEST_OBJECTS += $(OBJ_DIR)/src/sim/device.o
-TEST_OBJECTS += $(OBJ_DIR)/src/sim/board.o
-TEST_OBJECTS += $(OBJ_DIR)/src/sim/mcu.o
-TEST_OBJECTS += $(OBJ_DIR)/src/sim/mcu/py32.o
-TEST_OBJECTS += $(OBJ_DIR)/src/sim/devices/speaker.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(WEB_SOURCES:.c=.o))
 DEPFILES += $(WEB_OBJECTS:.o=.d)
 
-.PHONY: all web-core run-web test unit-test integration-test clean native
+.PHONY: all web-core run-web test unit-test integration-test clean
 
 all: $(TARGET)
 
 $(TARGET): $(TARGET_OBJECTS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $^ -o $@ $(CLI_LIBS)
+	$(CC) $(CFLAGS) $^ -o $@
 
 $(TEST_TARGET): $(TEST_OBJECTS)
 	@mkdir -p $(dir $@)
@@ -115,7 +99,6 @@ integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_dual_stack.sh
 	sh tests/integration/test_thumb_control_flow.sh
 	sh tests/integration/test_hardfault_paths.sh
-	sh tests/integration/test_wav_export.sh
 	sh tests/integration/test_iwdg_reset.sh
 	sh tests/integration/test_web_backend.sh
 	sh tests/integration/test_web_server.sh
@@ -125,10 +108,5 @@ test: unit-test integration-test
 clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C examples/hello_world clean
-
-# 本机实时构建：48 MHz 逐周期模拟和音频输出需要宿主有足够余量。
-native:
-	$(MAKE) clean
-	$(MAKE) CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
 
 -include $(DEPFILES)

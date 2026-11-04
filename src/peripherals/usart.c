@@ -4,9 +4,7 @@
 
 enum { USART_SR_RXNE = 1u << 5, USART_SR_TC = 1u << 6,
        USART_SR_TXE = 1u << 7, USART_CR1_RE = 1u << 2,
-       USART_CR1_TE = 1u << 3, USART_CR1_RXNEIE = 1u << 5,
-       USART_CR1_TCIE = 1u << 6, USART_CR1_TXEIE = 1u << 7,
-       USART_CR1_UE = 1u << 13 };
+       USART_CR1_TE = 1u << 3, USART_CR1_UE = 1u << 13 };
 
 static bool clocked(const Py32Usart *usart)
 {
@@ -92,17 +90,4 @@ size_t py32_usart_receive(Py32Usart *u, const uint8_t *data, size_t size)
     }
     if (u->rx_count > 0u) u->sr |= USART_SR_RXNE;
     return accepted;
-}
-
-bool py32_usart_irq_pending(const Py32Usart *u)
-{
-    if (u == NULL || (u->cr1 & USART_CR1_UE) == 0u) return false;
-    /* 接收和发送使能位分别由 CR1 控制；SR 标志为电平语义，ISR 通过
-     * 读 DR、写 DR 或写 0 清除。 */
-    return ((u->sr & USART_SR_RXNE) != 0u &&
-            (u->cr1 & USART_CR1_RXNEIE) != 0u) ||
-           ((u->sr & USART_SR_TXE) != 0u &&
-            (u->cr1 & USART_CR1_TXEIE) != 0u) ||
-           ((u->sr & USART_SR_TC) != 0u &&
-            (u->cr1 & USART_CR1_TCIE) != 0u);
 }

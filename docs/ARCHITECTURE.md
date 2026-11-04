@@ -19,9 +19,3 @@ Flash、SRAM、系统控制空间和外设窗口分派给内存或回调。`Py32
 
 这一边界足以支持 PY32F002A 与未来 PY32F003 的差异，同时避免先建立复杂的
 插件框架。只有第二个型号真正接入时，才提取已证实存在的共同外设配置。
-
-板级虚拟扬声器是 `SimDevice`，位于 `src/sim/devices/speaker.c`，不占芯片
-地址空间，也不属于芯片能力位。`Py32Mcu` 适配器把 PA0/PA1 的 TIM1 CH3/CH4
-电平送入 `SimBoard` 网络，扬声器只观察两个引脚并重建 PCM，再通过 sink 交给
-前端；CLI 的 PulseAudio/WAV 输出只是其中一个 sink。SoC 不持有扬声器，也不
-知道前端音频。

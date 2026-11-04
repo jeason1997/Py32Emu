@@ -128,16 +128,7 @@ bool py32_system_write(void *context, uint32_t offset, unsigned size,
 
 void py32_system_tick(Py32System *s, unsigned cpu_cycles)
 {
-    if ((s->syst_csr & SYST_ENABLE) == 0u) return;
-    if (cpu_cycles == 1u) {
-        if (s->syst_cvr == 0u) {
-            s->syst_cvr = s->syst_rvr;
-            s->syst_csr |= SYST_COUNTFLAG;
-            if (s->syst_csr & SYST_TICKINT) s->systick_pending = true;
-        } else --s->syst_cvr;
-        return;
-    }
-    while (cpu_cycles-- > 0u) {
+    while (cpu_cycles-- > 0u && (s->syst_csr & SYST_ENABLE) != 0u) {
         if (s->syst_cvr == 0u) {
             s->syst_cvr = s->syst_rvr;
             s->syst_csr |= SYST_COUNTFLAG;
@@ -151,9 +142,6 @@ bool py32_system_service_exception(Py32System *s)
     unsigned irq, best_exception = 0u;
     uint8_t active_priority, best_priority = 0xFFu;
     if (s->cpu->primask) return false;
-    /* 绝大多数指令执行间隔内没有任何异常挂起，先做 O(1) 快速返回，
-     * 避免每条指令扫描 32 路 NVIC。 */
-    if (!s->systick_pending && s->nvic_pending == 0u) return false;
     active_priority = exception_priority(s, s->cpu->exception_number);
     if (s->systick_pending) {
         uint8_t priority = exception_priority(s, 15u);

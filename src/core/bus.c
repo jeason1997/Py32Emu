@@ -11,22 +11,12 @@ static Py32BusRegion *find_region(Py32Bus *bus, uint32_t address,
                                   unsigned size)
 {
     size_t i;
-    unsigned slot;
     uint64_t end = (uint64_t)address + size;
 
-    for (slot = 0; slot < 2u; ++slot) {
-        Py32BusRegion *region = bus->cache[slot];
-        if (region != NULL && address >= region->base &&
-            end <= (uint64_t)region->base + region->size) return region;
-    }
     for (i = 0; i < bus->region_count; ++i) {
         Py32BusRegion *region = &bus->regions[i];
         uint64_t region_end = (uint64_t)region->base + region->size;
-        if (address >= region->base && end <= region_end) {
-            bus->cache[bus->cache_next] = region;
-            bus->cache_next ^= 1u;
-            return region;
-        }
+        if (address >= region->base && end <= region_end) return region;
     }
     return NULL;
 }
@@ -34,24 +24,6 @@ static Py32BusRegion *find_region(Py32Bus *bus, uint32_t address,
 void py32_bus_init(Py32Bus *bus)
 {
     memset(bus, 0, sizeof(*bus));
-}
-
-void py32_bus_set_fetch(Py32Bus *bus, const uint8_t *memory,
-                        uint32_t base, uint32_t size)
-{
-    if (bus == NULL) return;
-    bus->fetch_memory = memory;
-    bus->fetch_base = base;
-    bus->fetch_size = size;
-}
-
-void py32_bus_set_data(Py32Bus *bus, uint8_t *memory,
-                       uint32_t base, uint32_t size)
-{
-    if (bus == NULL) return;
-    bus->data_memory = memory;
-    bus->data_base = base;
-    bus->data_size = size;
 }
 
 static bool add_region(Py32Bus *bus, const Py32BusRegion *region)
@@ -98,23 +70,6 @@ bool py32_bus_read(Py32Bus *bus, uint32_t address, unsigned size,
 
     if (bus == NULL || value == NULL || !valid_size(size)) return false;
     if ((address & (size - 1u)) != 0u) goto fault;
-    /* 常用 SRAM/Flash 直读窗口：数据访问和取指都不必遍历区域表。 */
-    if (bus->data_memory != NULL && bus->data_size >= size &&
-        address >= bus->data_base &&
-        address - bus->data_base <= bus->data_size - size) {
-        const uint8_t *p = bus->data_memory + (address - bus->data_base);
-        *value = 0;
-        for (i = 0; i < size; ++i) *value |= (uint32_t)p[i] << (8u * i);
-        return true;
-    }
-    if (bus->fetch_memory != NULL && bus->fetch_size >= size &&
-        address >= bus->fetch_base &&
-        address - bus->fetch_base <= bus->fetch_size - size) {
-        const uint8_t *p = bus->fetch_memory + (address - bus->fetch_base);
-        *value = 0;
-        for (i = 0; i < size; ++i) *value |= (uint32_t)p[i] << (8u * i);
-        return true;
-    }
     region = find_region(bus, address, size);
     if (region == NULL) goto fault;
     offset = address - region->base;
@@ -143,13 +98,6 @@ bool py32_bus_write(Py32Bus *bus, uint32_t address, unsigned size,
 
     if (bus == NULL || !valid_size(size)) return false;
     if ((address & (size - 1u)) != 0u) goto fault;
-    if (bus->data_memory != NULL && bus->data_size >= size &&
-        address >= bus->data_base &&
-        address - bus->data_base <= bus->data_size - size) {
-        uint8_t *p = bus->data_memory + (address - bus->data_base);
-        for (i = 0; i < size; ++i) p[i] = (uint8_t)(value >> (8u * i));
-        return true;
-    }
     region = find_region(bus, address, size);
     if (region == NULL) goto fault;
     offset = address - region->base;
