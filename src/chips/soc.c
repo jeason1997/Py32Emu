@@ -180,6 +180,8 @@ bool py32_soc_configure(Py32Soc *soc,
     }
     py32_bus_set_fetch(&soc->bus, soc->flash,
                        description->flash_base, description->flash_size);
+    py32_bus_set_data(&soc->bus, soc->sram,
+                      description->sram_base, description->sram_size);
     cortex_m0_init(&soc->cpu, &soc->bus);
     py32_system_reset(&soc->system, &soc->cpu,
                       description->reset_clock_hz,

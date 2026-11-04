@@ -15,8 +15,9 @@
   按 22,050 Hz 对差分电平积分重建 PCM，不读取 SoC/TIM 寄存器。
 - 删除此前误放在 `src/peripherals` 和 `src/devices` 的扬声器实现；SoC 不再
   持有扬声器，CLI 通过 `Py32Mcu + SimBoard` 连接 `SPK_NEG/SPK_POS` 网络。
-- 当前 native 构建在加入通用网络解析后约 0.7–0.8x 实时，尚未达到 1:1；
-  后续需要继续优化引脚解析/CPU 热点，不能把当前结果写成实时达标。
+- 当前 native 构建在加入通用网络解析后约 0.9–0.97x 实时（`--realtime`
+  约 0.97x，`--audio` 约 0.92x），已接近但尚未完全达到 1:1；默认 `-O2`
+  更低，后续继续优化引脚解析/CPU 热点。
 
 ## 2026-11-04：实时音频与 1:1 系统时钟
 
@@ -27,10 +28,10 @@
   1024 样本块写入。`--realtime` 只按墙钟推进，不依赖声卡。
 - 主循环按 1 ms 模拟时间切片，用 `CLOCK_MONOTONIC` 计算目标墙钟并睡眠；
   音频写入阻塞时允许落后，不在寄存器事务中间强制同步。
-- 实测（NSF 固件，300M 指令，6.832 秒音频）：`--realtime` 和 `--audio`
-  在 native 构建下约 0.7–0.8x 实时，默认 `-O2` 更低；加入通用 sim/board
-  后尚未达到 1:1，具体受宿主负载影响。用 PulseAudio `RDPSink.monitor`
-  录制 11.45 秒，峰值 12675、RMS 约 1374，确认声音实际进入系统音频 sink。
+- 实测（NSF 固件，300M 指令，6.832 秒音频）：native 构建 `--realtime`
+  约 0.97x、`--audio` 约 0.92x；默认 `-O2` 更低。用 PulseAudio
+  `RDPSink.monitor` 录制 11.45 秒，峰值 12675、RMS 约 1374，确认声音实际
+  进入系统音频 sink。
 - `make native` 目标封装 `-O3 -march=native -flto`；没有 PulseAudio 的构建
   仍可正常编译，`--audio` 会明确报错并提示安装 `libpulse-dev`。
 - 边界：虚拟扬声器建模 TIM1 CH3/CH4 的差分比较值（等价理想低通重构），

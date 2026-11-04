@@ -33,6 +33,9 @@ typedef struct {
     const uint8_t *fetch_memory;
     uint32_t fetch_base;
     uint32_t fetch_size;
+    uint8_t *data_memory;
+    uint32_t data_base;
+    uint32_t data_size;
     uint32_t fault_address;
     bool faulted;
 } Py32Bus;
@@ -40,6 +43,8 @@ typedef struct {
 void py32_bus_init(Py32Bus *bus);
 void py32_bus_set_fetch(Py32Bus *bus, const uint8_t *memory,
                         uint32_t base, uint32_t size);
+void py32_bus_set_data(Py32Bus *bus, uint8_t *memory,
+                       uint32_t base, uint32_t size);
 bool py32_bus_add_memory(Py32Bus *bus, const char *name, uint32_t base,
                          uint8_t *memory, uint32_t size, bool read_only);
 bool py32_bus_add_device(Py32Bus *bus, const char *name, uint32_t base,

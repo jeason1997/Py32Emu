@@ -101,8 +101,8 @@ make native
 
 等价于使用 `-O3 -march=native -flto` 重新构建。实测约 20.5–21.6 秒，即约
 51–54M 周期/秒。`make native` 只适合本机，CI 和发布构建仍使用默认可移植参数。
-实时音频需要 PulseAudio（WSLg 已提供）；当前加入通用 `sim/board` 网络后，
-native 构建约 0.7–0.8x 实时，尚未达到 1:1，后续继续优化。
+实时音频需要 PulseAudio（WSLg 已提供）；当前 `sim/board` 结构下，native
+构建 `--realtime` 约 0.97x、`--audio` 约 0.92x，已接近但尚未完全达到 1:1。
 
 ## Web 调试台
 
