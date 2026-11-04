@@ -148,6 +148,8 @@ int main(int argc, char **argv)
            soc.cpu.r[CORTEX_M0_PC],
            soc.cpu.stopped ? cortex_m0_stop_reason_name(soc.cpu.stop_reason)
                            : "step-limit");
+    if (soc.bus.faulted)
+        printf("BUS: 故障地址=0x%08X\n", soc.bus.fault_address);
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",
            soc.gpioa.moder, soc.gpioa.odr);
     if (pulse)
@@ -168,9 +170,10 @@ int main(int argc, char **argv)
                soc.flash_controller.last_address, flash_word);
     }
     if ((soc.rcc.apbenr2 & (1u << 11)) != 0u)
-        printf("TIM1: CNT=%u PSC=%u ARR=%u SR=0x%X\n",
+        printf("TIM1: CNT=%u PSC=%u ARR=%u CCR3=%u CCR4=%u SR=0x%X\n",
                (unsigned)soc.tim1.reg[9], (unsigned)soc.tim1.reg[10],
-               (unsigned)soc.tim1.reg[11], (unsigned)soc.tim1.reg[4]);
+               (unsigned)soc.tim1.reg[11], (unsigned)soc.tim1.reg[15],
+               (unsigned)soc.tim1.reg[16], (unsigned)soc.tim1.reg[4]);
     if ((soc.rcc.apbenr2 & (1u << 20)) != 0u)
         printf("ADC1: DR=%u CHSELR=0x%X conversions=%llu\n",
                (unsigned)soc.adc1.dr, (unsigned)soc.adc1.chselr,

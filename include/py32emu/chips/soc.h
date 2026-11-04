@@ -47,6 +47,7 @@ typedef struct {
     uint8_t system_memory[4096];
     uint8_t syscfg_registers[0x88];
     uint8_t pwr_registers[0x0C];
+    uint8_t dbg_registers[0x10];
     uint32_t adc_common_ccr;
     uint32_t exti_irq_level;
     uint64_t reset_count;

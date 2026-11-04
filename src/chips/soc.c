@@ -69,6 +69,7 @@ bool py32_soc_configure(Py32Soc *soc,
     memset(soc->system_memory, 0, sizeof(soc->system_memory));
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
+    memset(soc->dbg_registers, 0, sizeof(soc->dbg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -113,6 +114,9 @@ bool py32_soc_configure(Py32Soc *soc,
         !py32_bus_add_memory(&soc->bus, "pwr", 0x40007000u,
                              soc->pwr_registers,
                              sizeof(soc->pwr_registers), false) ||
+        !py32_bus_add_memory(&soc->bus, "dbgmcu", 0x40015800u,
+                             soc->dbg_registers,
+                             sizeof(soc->dbg_registers), false) ||
         (has(soc, PY32_PERIPHERAL_EXTI) &&
          !py32_bus_add_memory(&soc->bus, "syscfg", 0x40010000u,
                              soc->syscfg_registers,
@@ -197,6 +201,7 @@ bool py32_soc_reset(Py32Soc *soc, char *error, size_t error_size)
     memset(soc->sram, 0, soc->description->sram_size);
     memset(soc->syscfg_registers, 0, sizeof(soc->syscfg_registers));
     memset(soc->pwr_registers, 0, sizeof(soc->pwr_registers));
+    memset(soc->dbg_registers, 0, sizeof(soc->dbg_registers));
     py32_exti_reset(&soc->exti);
     soc->adc_common_ccr = 0u;
     soc->exti_irq_level = 0u;
@@ -261,6 +266,9 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
                             soc->description->reset_clock_hz,
                             lptim_clock_hz(soc)))
             soc->system.nvic_pending |= 1u << 17;
+        if (has(soc, PY32_PERIPHERAL_USART1) &&
+            py32_usart_irq_pending(&soc->usart1))
+            soc->system.nvic_pending |= 1u << 27;
         if (has(soc, PY32_PERIPHERAL_SPI1) &&
             py32_spi_irq_pending(&soc->spi1))
             soc->system.nvic_pending |= 1u << 25;

@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 typedef struct {
-    uint32_t cr, icscr, cfgr, ecscr;
+    uint32_t cr, icscr, cfgr, pllcfgr, ecscr;
     uint32_t cier, cifr;
     uint32_t ioprstr, ahbrstr, apbrstr1, apbrstr2;
     uint32_t iopenr, ahbenr, apbenr1, apbenr2;

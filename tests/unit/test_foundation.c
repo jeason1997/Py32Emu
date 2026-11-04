@@ -8,6 +8,20 @@
 #include <stdio.h>
 #include <string.h>
 
+static void put_le16(uint8_t *p, uint16_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+}
+
+static void put_le32(uint8_t *p, uint32_t value)
+{
+    p[0] = (uint8_t)value;
+    p[1] = (uint8_t)(value >> 8);
+    p[2] = (uint8_t)(value >> 16);
+    p[3] = (uint8_t)(value >> 24);
+}
+
 static uint16_t spi_echo(void *context, uint16_t output, unsigned bits)
 {
     unsigned *calls = context;
@@ -105,6 +119,56 @@ int main(void)
     py32_firmware_image_free(&image);
 
     /*
+     * 链接脚本常为 .bss/.stack 生成 Filesz=0、PAddr 位于 SRAM 的 PT_LOAD。
+     * 这类段没有 Flash 内容，不应让整个 ELF 装载失败。
+     */
+    {
+        uint8_t elf[52u + 2u * 32u + 4u] = {0};
+        Py32FirmwareImage zero_image;
+        FILE *elf_file;
+
+        elf[0] = 0x7Fu; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
+        elf[4] = 1u; elf[5] = 1u; elf[6] = 1u;
+        put_le16(elf + 16u, 2u);         /* ET_EXEC */
+        put_le16(elf + 18u, 40u);        /* EM_ARM */
+        put_le32(elf + 20u, 1u);
+        put_le32(elf + 24u, 0x08000001u);
+        put_le32(elf + 28u, 52u);        /* e_phoff */
+        put_le16(elf + 40u, 52u);
+        put_le16(elf + 42u, 32u);
+        put_le16(elf + 44u, 2u);
+        /* 第一个 PT_LOAD：4 字节 Flash 内容。 */
+        put_le32(elf + 52u, 1u);
+        put_le32(elf + 52u + 4u, 52u + 64u);
+        put_le32(elf + 52u + 8u, 0x08000000u);
+        put_le32(elf + 52u + 12u, 0x08000000u);
+        put_le32(elf + 52u + 16u, 4u);
+        put_le32(elf + 52u + 20u, 4u);
+        put_le32(elf + 52u + 24u, 5u);
+        put_le32(elf + 52u + 28u, 4u);
+        /* 第二个 PT_LOAD：仅 .bss/.stack，Filesz=0 且位于 SRAM。 */
+        put_le32(elf + 84u, 1u);
+        put_le32(elf + 84u + 8u, 0x20000000u);
+        put_le32(elf + 84u + 12u, 0x20000000u);
+        put_le32(elf + 84u + 20u, 8u);
+        put_le32(elf + 84u + 24u, 6u);
+        put_le32(elf + 84u + 28u, 4u);
+        elf[116] = 0x78u; elf[117] = 0x56u;
+        elf[118] = 0x34u; elf[119] = 0x12u;
+        elf_file = fopen("build/test-zero-filesz.elf", "wb");
+        assert(elf_file != NULL);
+        assert(fwrite(elf, 1u, sizeof(elf), elf_file) == sizeof(elf));
+        assert(fclose(elf_file) == 0);
+        py32_firmware_image_init(&zero_image);
+        assert(py32_firmware_load_elf(&zero_image, "build/test-zero-filesz.elf",
+                                      chip->flash_base, chip->flash_size,
+                                      error, sizeof(error)));
+        assert(zero_image.size == 4u &&
+               memcmp(zero_image.data, elf + 116u, 4u) == 0);
+        py32_firmware_image_free(&zero_image);
+    }
+
+    /*
      * 最小 Thumb 程序：MOVS r0,#5; ADDS r0,#3; SUBS r0,#1;
      * STR r0,[r1,#0]; LDR r2,[r1,#0]; PUSH {r2}; POP {r3}; BKPT。
      */
@@ -160,6 +224,43 @@ int main(void)
     assert(cpu.r[CORTEX_M0_SP] == 0x20000C00u);
     assert(ram[0] == 7u);
 
+    /*
+     * 寄存器形式 STRH/LDRH 曾因 0xF200 掩码被误判为未定义指令。用真实
+     * 编码 0x5313/0x5B15 覆盖半字寄存器访问和立即数偏移形式。
+     */
+    {
+        uint8_t half_flash[32] = {0};
+        uint8_t half_ram[1024] = {0};
+        Py32Bus half_bus;
+        CortexM0 half_cpu;
+
+        put_le32(half_flash, 0x20000C00u);
+        put_le32(half_flash + 4u, 0x08000009u);
+        put_le16(half_flash + 8u, 0x5310u);  /* STRH r0,[r2,r4] */
+        put_le16(half_flash + 10u, 0x5B15u); /* LDRH r5,[r2,r4] */
+        put_le16(half_flash + 12u, 0x80C8u); /* STRH r0,[r1,#6] */
+        put_le16(half_flash + 14u, 0x885Au); /* LDRH r2,[r3,#2] */
+        put_le16(half_flash + 16u, 0xBE00u); /* BKPT #0 */
+        put_le16(half_ram + 0x12u, 0x1234u);
+        py32_bus_init(&half_bus);
+        assert(py32_bus_add_memory(&half_bus, "flash", 0x08000000u,
+                                   half_flash, sizeof(half_flash), true));
+        assert(py32_bus_add_memory(&half_bus, "sram", 0x20000000u,
+                                   half_ram, sizeof(half_ram), false));
+        cortex_m0_init(&half_cpu, &half_bus);
+        assert(cortex_m0_reset(&half_cpu, 0x08000000u));
+        half_cpu.r[0] = 0xABCDu;
+        half_cpu.r[1] = 0x20000020u;
+        half_cpu.r[2] = 0x20000000u;
+        half_cpu.r[3] = 0x20000010u;
+        half_cpu.r[4] = 0u;
+        while (!half_cpu.stopped) cortex_m0_step(&half_cpu);
+        assert(half_cpu.stop_reason == CORTEX_M0_STOP_BKPT);
+        assert(half_cpu.r[5] == 0xABCDu && half_cpu.r[2] == 0x1234u);
+        assert(half_ram[0] == 0xCDu && half_ram[1] == 0xABu);
+        assert(half_ram[0x26u] == 0xCDu && half_ram[0x27u] == 0xABu);
+    }
+
     /* SoC 装配必须同时提供 0 地址别名和 0x08000000 主 Flash。 */
     py32_soc_init(&soc);
     py32_firmware_image_init(&image);
@@ -189,6 +290,22 @@ int main(void)
 
     assert(py32_soc_configure(&soc, chip, &image, error, sizeof(error)));
     assert(py32_soc_reset(&soc, error, sizeof(error)));
+    /* 隐藏 PLL 的 CR/PLLRDY 握手和 PLLCFGR 必须可读写。 */
+    assert(py32_bus_read(&soc.bus, 0x40021000u, 4u, &value));
+    assert((value & (1u << 10)) != 0u); /* 复位后 HSI 已就绪 */
+    assert(py32_bus_write(&soc.bus, 0x40021000u, 4u, (1u << 8) | (1u << 24)));
+    assert(py32_bus_read(&soc.bus, 0x40021000u, 4u, &value));
+    assert((value & (1u << 25)) != 0u); /* PLLRDY */
+    assert(py32_bus_write(&soc.bus, 0x40021000u, 4u, 1u << 8));
+    assert(py32_bus_read(&soc.bus, 0x40021000u, 4u, &value));
+    assert((value & (1u << 25)) == 0u);
+    assert(py32_bus_write(&soc.bus, 0x4002100Cu, 4u, 0x5Au));
+    assert(py32_bus_read(&soc.bus, 0x4002100Cu, 4u, &value));
+    assert(value == 0x5Au);
+    /* DBGMCU 是固件冻结定时器所需的普通可写窗口。 */
+    assert(py32_bus_write(&soc.bus, 0x4001580Cu, 4u, 0x00000600u));
+    assert(py32_bus_read(&soc.bus, 0x4001580Cu, 4u, &value));
+    assert(value == 0x00000600u);
     assert(py32_bus_write(&soc.bus, 0x40021038u, 4u, 1u << 12));
     assert(py32_bus_write(&soc.bus, 0x40023008u, 4u, 1u));
     assert(py32_bus_write(&soc.bus, 0x40023000u, 4u, 0x12345678u));
@@ -269,22 +386,32 @@ int main(void)
     assert((soc.gpioa.odr & (1u << 5)) == 0u);
     assert(py32_bus_write(&soc.bus, 0x40021040u, 4, 1u << 14));
     assert(py32_bus_write(&soc.bus, 0x4001380Cu, 4,
-                          (1u << 13) | (1u << 3) | (1u << 2)));
+                          (1u << 13) | (1u << 3) | (1u << 2) | (1u << 5)));
     assert(py32_bus_write(&soc.bus, 0x40013804u, 1, 0xA5u));
     assert(soc.usart1.tx_count == 1u && soc.usart1.tx[0] == 0xA5u);
     {
         const uint8_t input[] = {0x11u, 0x22u};
         uint32_t received;
         assert(py32_usart_receive(&soc.usart1, input, sizeof(input)) == 2u);
+        assert(py32_usart_irq_pending(&soc.usart1)); /* RXNEIE -> IRQ27 */
         assert(py32_bus_read(&soc.bus, 0x40013800u, 4, &received));
         assert((received & (1u << 5)) != 0u);
         assert(py32_bus_read(&soc.bus, 0x40013804u, 1, &received));
         assert(received == 0x11u);
+        assert(py32_usart_irq_pending(&soc.usart1));
+        assert(py32_bus_read(&soc.bus, 0x40013804u, 1, &received));
+        assert(received == 0x22u && !py32_usart_irq_pending(&soc.usart1));
     }
     assert(py32_bus_write(&soc.bus, 0x40021040u, 4,
                           (1u << 11) | (1u << 14) | (1u << 17)));
     assert(py32_bus_write(&soc.bus, 0x40012C28u, 4, 0u));
     assert(py32_bus_write(&soc.bus, 0x40012C2Cu, 4, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40012C3Cu, 4, 0x11u));
+    assert(py32_bus_write(&soc.bus, 0x40012C40u, 4, 0x22u));
+    assert(py32_bus_read(&soc.bus, 0x40012C3Cu, 4, &value));
+    assert(value == 0x11u);
+    assert(py32_bus_read(&soc.bus, 0x40012C40u, 4, &value));
+    assert(value == 0x22u);
     assert(py32_bus_write(&soc.bus, 0x40012C0Cu, 4, 1u));
     assert(py32_bus_write(&soc.bus, 0x40012C00u, 4, 1u));
     assert(py32_timer_tick(&soc.tim1, 2u));

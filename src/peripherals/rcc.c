@@ -13,7 +13,8 @@ static uint32_t *register_at(Py32Rcc *rcc, uint32_t offset)
 {
     switch (offset) {
     case 0x00: return &rcc->cr; case 0x04: return &rcc->icscr;
-    case 0x08: return &rcc->cfgr; case 0x10: return &rcc->ecscr;
+    case 0x08: return &rcc->cfgr; case 0x0C: return &rcc->pllcfgr;
+    case 0x10: return &rcc->ecscr;
     case 0x18: return &rcc->cier; case 0x1C: return &rcc->cifr;
     case 0x24: return &rcc->ioprstr; case 0x28: return &rcc->ahbrstr;
     case 0x2C: return &rcc->apbrstr1; case 0x30: return &rcc->apbrstr2;
@@ -53,9 +54,12 @@ bool py32_rcc_write(void *context, uint32_t offset, unsigned size,
     if (reg == NULL) return false;
     *reg = value;
     if (offset == 0x00u) {
-        /* 模拟器中的内部振荡器立即稳定。 */
+        /* 模拟器中的内部振荡器和 PLL 立即稳定。PY32F002A 的 PLL 固定为
+         * HSI 的二倍频，PLLCFGR 只保留隐藏实现的源选择位。 */
         if (value & (1u << 8)) rcc->cr |= 1u << 10;
         if (value & 1u) rcc->cr |= 1u << 1;
+        if (value & (1u << 24)) rcc->cr |= 1u << 25;
+        else rcc->cr &= ~(1u << 25);
     } else if (offset == 0x08u) {
         rcc->cfgr = (rcc->cfgr & ~(7u << 3)) | ((value & 7u) << 3);
     }

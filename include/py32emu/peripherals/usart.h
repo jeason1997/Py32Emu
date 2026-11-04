@@ -24,6 +24,7 @@ bool py32_usart_read(void *context, uint32_t offset, unsigned size,
 bool py32_usart_write(void *context, uint32_t offset, unsigned size,
                       uint32_t value);
 size_t py32_usart_receive(Py32Usart *usart, const uint8_t *data, size_t size);
+bool py32_usart_irq_pending(const Py32Usart *usart);
 
 #endif
 

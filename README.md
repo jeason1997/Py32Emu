@@ -5,7 +5,9 @@ PY32F002A；CPU、总线和外设模型不保存具体型号容量，芯片描�
 大小、IRQ 数量和实际装配的外设，为后续 PY32F003 等型号保留扩展入口。
 
 当前版本可以直接加载由官方 SDK 和 `arm-none-eabi-gcc` 生成的 BIN、Intel HEX
-与 ELF 固件，并已运行 HelloWorld 及多项官方 HAL 例程。详细证据见
+与 ELF 固件，并已运行 HelloWorld 及多项官方 HAL 例程。真实第三方固件方面，已验证
+32 KiB/4 KiB 的 PY32F002A NSF 播放器完成 48 MHz 时钟初始化、双缓冲音频调度和串口
+换曲。详细证据见
 [完成审计](docs/COMPLETION_AUDIT.md)和[开发记录](docs/PROGRESS.md)。
 
 ## 已实现能力

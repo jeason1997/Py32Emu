@@ -92,6 +92,9 @@ bool py32_firmware_load_elf(Py32FirmwareImage *image, const char *path,
         offset = read_le32(ph + 4); address = read_le32(ph + 12);
         if (address == 0u) address = read_le32(ph + 8);
         filesz = read_le32(ph + 16); end = (uint64_t)address + filesz;
+        /* 仅含 .bss/.stack 的 PT_LOAD 可以 Filesz=0 且位于 SRAM；
+         * 它们没有需要写入 Flash 的内容，不参与装载范围校验。 */
+        if (filesz == 0u) continue;
         /* RAM 初始化段的内容由启动代码从其 Flash LMA 复制，PADDR 即 LMA。 */
         if (address < flash_base || end > (uint64_t)flash_base + flash_size ||
             !range_inside(offset, filesz, (size_t)file_length)) goto malformed;

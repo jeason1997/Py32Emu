@@ -1,5 +1,34 @@
 # Py32Emu 开发进度
 
+## 2026-11-04：第三方 NSF 播放器联调
+
+- 以 `E:\Projects\MCU_Project\32\Py32\PY32F002A_VSCode_NSF` 的真实 NSF 播放器
+  ELF（32 KiB Flash/4 KiB SRAM、48 MHz 隐藏 PLL、TIM1 CH3/CH4 PWM、TIM16
+  22.05 kHz 采样中断、USART1 控制台）作为外部固件联调样例，不向仓库加入该项目
+  的固件或示例专用路径。
+- 联调暴露并修复四个通用缺口：
+  1. Thumb 寄存器形式 `STRH/LDRH` 被 `0xF200` 掩码错误排除，执行时进入未定义
+     指令 HardFault；改为 `0xF000` 分类并由单元测试覆盖寄存器及立即数偏移形式。
+  2. ELF 装载器把 `Filesz=0`、`PAddr` 位于 SRAM 的 `.bss/.stack` PT_LOAD 判为
+     越界；现在跳过无内容段，仍校验有内容段的 Flash 范围。
+  3. RCC 未映射 `PLLCFGR`（`0x4002100C`）且不置 `PLLRDY`，使固件等待 48 MHz
+     隐藏 PLL 时超时；现在保留该寄存器并在 `PLLON` 后给出就绪位。
+  4. USART1 的 RXNE/TXE/TC 中断条件未接入 NVIC IRQ27，串口接收命令无响应；
+     同时补上 DBGMCU 窗口，供固件写 `APBFZ2` 冻结定时器。
+- 运行结果（Web 后端注入串口命令，固件自身 `report()` 输出）：
+  `track=1 plays=273 under=0 late=0 error=0`，约 4.7 秒音频内
+  `played_samples=102635`；发送 `n` 后 `track=2 plays=41 error=0`；TIM1
+  `CCR3/CCR4` 随样本持续变化，确认 APU 到 PWM 比较值的软件路径在运行。
+- 长跑 1,000,000,000 条指令（约 22.9 秒模拟时间）后仍为 `track=1 plays=1367
+  under=0 late=0 error=0`。
+- 新增单元回归：半字寄存器访问、零 Filesz ELF、PLLRDY/PLLCFGR、DBGMCU、
+  USART RXNE 中断挂起；WSL `make test` 全量通过。
+- 边界：TIM1 只保存比较值，不生成引脚 PWM 波形；未验证模拟音频质量、DMA、
+  逐周期时序和实机对照，因此该结果只证明功能级执行路径，不证明电气等价。
+
+当前总体完成度：约 70%（按官方示例逐项矩阵口径，本次未新增官方示例项，
+不据此上调）；第三方固件联调不改变“官方示例全集兼容”的结论。
+
 ## 2026-08-14：目标口径纠正与 Agent 规则分层
 
 - 纠正此前“100%”的歧义：它只表示首个功能级版本完成，不表示官方 SDK 全部示例通过。
