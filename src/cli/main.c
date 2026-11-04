@@ -3,6 +3,9 @@
 #include "py32emu/chips/chip.h"
 #include "py32emu/chips/soc.h"
 #include "py32emu/firmware/image.h"
+#include "py32emu/sim/board.h"
+#include "py32emu/sim/devices/speaker.h"
+#include "py32emu/sim/mcu/py32.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -22,7 +25,6 @@
 #endif
 
 typedef struct {
-    Py32Soc *soc;
     FILE *wav;
     uint64_t wav_samples;
     bool wav_failed;
@@ -32,7 +34,7 @@ typedef struct {
     unsigned audio_filled;
     uint64_t audio_failures;
 #endif
-} MediaCapture;
+} AudioOutput;
 
 static volatile sig_atomic_t stop_requested;
 
@@ -134,7 +136,7 @@ static bool wav_finish(FILE *file, uint64_t samples)
 }
 
 #if defined(PY32EMU_HAVE_PULSE)
-static void audio_flush(MediaCapture *capture)
+static void audio_flush(AudioOutput *capture)
 {
     int error = 0;
     if (capture->audio == NULL || capture->audio_filled == 0u) return;
@@ -149,7 +151,7 @@ static void audio_flush(MediaCapture *capture)
     capture->audio_filled = 0;
 }
 
-static bool audio_open(MediaCapture *capture, unsigned rate)
+static bool audio_open(AudioOutput *capture, unsigned rate)
 {
     pa_sample_spec spec;
     pa_buffer_attr attr;
@@ -176,7 +178,7 @@ static bool audio_open(MediaCapture *capture, unsigned rate)
     return true;
 }
 
-static void audio_close(MediaCapture *capture)
+static void audio_close(AudioOutput *capture)
 {
     int error = 0;
     audio_flush(capture);
@@ -189,28 +191,21 @@ static void audio_close(MediaCapture *capture)
 }
 #endif
 
-static void media_capture_compare(void *context, unsigned channel,
-                                  uint32_t value)
+static void audio_output_sample(void *context, int16_t pcm)
 {
-    MediaCapture *capture = context;
-    int16_t pcm;
-    if (capture == NULL || channel != 4u) return;
-    /* 只在固件启动 TIM16 采样中断后记录；初始化阶段的中点写入忽略。 */
-    if ((capture->soc->tim1.reg[0] & 1u) == 0u ||
-        (capture->soc->tim16.reg[0] & 1u) == 0u) return;
-    if (value > 255u) value = 255u;
-    pcm = (int16_t)(((int32_t)value - 128) * 256);
-    if (capture->wav != NULL && !capture->wav_failed) {
-        if (fwrite(&pcm, sizeof(pcm), 1u, capture->wav) != 1u)
-            capture->wav_failed = true;
-        else ++capture->wav_samples;
+    AudioOutput *output = context;
+    if (output == NULL) return;
+    if (output->wav != NULL && !output->wav_failed) {
+        if (fwrite(&pcm, sizeof(pcm), 1u, output->wav) != 1u)
+            output->wav_failed = true;
+        else ++output->wav_samples;
     }
 #if defined(PY32EMU_HAVE_PULSE)
-    if (capture->audio != NULL) {
-        capture->audio_chunk[capture->audio_filled++] = pcm;
-        if (capture->audio_filled ==
-            sizeof(capture->audio_chunk) / sizeof(capture->audio_chunk[0]))
-            audio_flush(capture);
+    if (output->audio != NULL) {
+        output->audio_chunk[output->audio_filled++] = pcm;
+        if (output->audio_filled ==
+            sizeof(output->audio_chunk) / sizeof(output->audio_chunk[0]))
+            audio_flush(output);
     }
 #endif
 }
@@ -384,21 +379,18 @@ int main(int argc, char **argv)
         py32_firmware_image_free(&image);
         return 1;
     }
-    /* --pulse 表示确定的高到低脉冲，不依赖固件是否配置内部上拉。 */
-    if (pulse)
-        py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, true);
-    MediaCapture capture;
-    memset(&capture, 0, sizeof(capture));
-    capture.soc = &soc;
+    /* --pulse 在板级复位后注入，避免 SoC 复位清掉初始高电平。 */
+    AudioOutput output;
+    memset(&output, 0, sizeof(output));
     bool wav_error = false;
     bool audio_error = false;
     uint64_t real_start_ns = 0u;
     uint64_t real_start_cycles = 0u;
     if (wav_path != NULL) {
-        capture.wav = fopen(wav_path, "wb");
-        if (capture.wav == NULL || !wav_header(capture.wav, wav_rate)) {
+        output.wav = fopen(wav_path, "wb");
+        if (output.wav == NULL || !wav_header(output.wav, wav_rate)) {
             fprintf(stderr, "无法创建 WAV 文件: %s\n", wav_path);
-            if (capture.wav != NULL) fclose(capture.wav);
+            if (output.wav != NULL) fclose(output.wav);
             py32_soc_destroy(&soc);
             py32_firmware_image_free(&image);
             return 1;
@@ -406,8 +398,8 @@ int main(int argc, char **argv)
     }
 #if defined(PY32EMU_HAVE_PULSE)
     if (audio) {
-        if (!audio_open(&capture, audio_rate)) {
-            if (capture.wav != NULL) fclose(capture.wav);
+        if (!audio_open(&output, audio_rate)) {
+            if (output.wav != NULL) fclose(output.wav);
             py32_soc_destroy(&soc);
             py32_firmware_image_free(&image);
             return 1;
@@ -416,56 +408,77 @@ int main(int argc, char **argv)
         fflush(stdout);
     }
 #endif
-    if (wav_path != NULL || audio) {
-        soc.tim1.compare_callback = media_capture_compare;
-        soc.tim1.compare_context = &capture;
-    }
     {
-        uint64_t start_ns = realtime ? monotonic_ns() : 0u;
-        uint64_t start_cycles = soc.cpu.cycles;
-        uint64_t next_slice = start_cycles + clock_hz / 1000u;
-        real_start_ns = start_ns;
-        real_start_cycles = start_cycles;
-        while (!soc.cpu.stopped && steps < limit && !stop_requested) {
-            if (pulse && steps == pulse_at)
-                py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin,
-                                        true, false);
-            if (analog && steps == analog_at)
-                py32_soc_set_analog_input(&soc, analog_port, analog_pin,
-                                          (uint16_t)analog_mv);
-            {
-                CortexM0StepResult result = py32_soc_step(&soc);
+        Py32Mcu mcu;
+        SimBoard board;
+        SimSpeaker speaker;
+        int negative_net, positive_net;
+
+        py32_mcu_init(&mcu, &soc, clock_hz);
+        sim_board_init(&board, &mcu.base);
+        sim_speaker_init(&speaker, "speaker", audio_output_sample, &output,
+                         audio_rate);
+        negative_net = sim_board_add_net(&board, "SPK_NEG");
+        positive_net = sim_board_add_net(&board, "SPK_POS");
+        if (negative_net < 0 || positive_net < 0 ||
+            !sim_board_connect_mcu(&board, negative_net, 0u) ||
+            !sim_board_connect_mcu(&board, positive_net, 1u) ||
+            !sim_board_connect_device(&board, negative_net, &speaker.base, 0u) ||
+            !sim_board_connect_device(&board, positive_net, &speaker.base, 1u)) {
+            fprintf(stderr, "无法建立扬声器电路连接\n");
+            if (output.wav != NULL) fclose(output.wav);
+            py32_soc_destroy(&soc);
+            py32_firmware_image_free(&image);
+            return 1;
+        }
+        sim_board_reset(&board);
+        if (pulse)
+            py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin, true, true);
+        {
+            uint64_t start_ns = realtime ? monotonic_ns() : 0u;
+            uint64_t start_cycles = soc.cpu.cycles;
+            uint64_t next_slice = start_cycles + clock_hz / 1000u;
+            real_start_ns = start_ns;
+            real_start_cycles = start_cycles;
+            while (!soc.cpu.stopped && steps < limit && !stop_requested) {
+                if (pulse && steps == pulse_at)
+                    py32_soc_set_gpio_input(&soc, pulse_port, pulse_pin,
+                                            true, false);
+                if (analog && steps == analog_at)
+                    py32_soc_set_analog_input(&soc, analog_port, analog_pin,
+                                              (uint16_t)analog_mv);
+                sim_board_step(&board);
                 if (trace) {
                     const Py32FirmwareSymbol *symbol =
-                        py32_firmware_find_symbol(&image, result.executed_pc);
+                        py32_firmware_find_symbol(&image, soc.cpu.last_pc);
                     printf("%08X  %04X  r0=%08X sp=%08X",
-                           result.executed_pc, result.instruction,
+                           soc.cpu.last_pc, soc.cpu.last_instruction,
                            soc.cpu.r[0], soc.cpu.r[CORTEX_M0_SP]);
                     if (symbol != NULL)
                         printf("  <%s+0x%X>", symbol->name,
-                               result.executed_pc - symbol->address);
+                               soc.cpu.last_pc - symbol->address);
                     putchar('\n');
                 }
-            }
-            ++steps;
-            if (realtime && soc.cpu.cycles >= next_slice) {
-                uint64_t elapsed = soc.cpu.cycles - start_cycles;
-                uint64_t seconds = elapsed / clock_hz;
-                uint64_t remainder = elapsed % clock_hz;
-                uint64_t target = start_ns + seconds * 1000000000u +
-                                  remainder * 1000000000u / clock_hz;
-                sleep_until_ns(target);
-                next_slice = soc.cpu.cycles + clock_hz / 1000u;
+                ++steps;
+                if (realtime && soc.cpu.cycles >= next_slice) {
+                    uint64_t elapsed = soc.cpu.cycles - start_cycles;
+                    uint64_t seconds = elapsed / clock_hz;
+                    uint64_t remainder = elapsed % clock_hz;
+                    uint64_t target = start_ns + seconds * 1000000000u +
+                                      remainder * 1000000000u / clock_hz;
+                    sleep_until_ns(target);
+                    next_slice = soc.cpu.cycles + clock_hz / 1000u;
+                }
             }
         }
+        sim_speaker_set_sink(&speaker, NULL, NULL);
     }
-    soc.tim1.compare_callback = NULL;
 #if defined(PY32EMU_HAVE_PULSE)
     if (audio) {
-        audio_close(&capture);
-        if (capture.audio_failures != 0u) audio_error = true;
+        audio_close(&output);
+        if (output.audio_failures != 0u) audio_error = true;
         printf("AUDIO: %llu 个写入失败\n",
-               (unsigned long long)capture.audio_failures);
+               (unsigned long long)output.audio_failures);
     }
 #endif
     if (realtime) {
@@ -482,26 +495,18 @@ int main(int argc, char **argv)
            soc.cpu.stopped ? cortex_m0_stop_reason_name(soc.cpu.stop_reason)
                            : stop_requested ? "interrupted" : "step-limit");
     if (wav_path != NULL) {
-        bool ok = !capture.wav_failed &&
-                  wav_finish(capture.wav, capture.wav_samples);
-        if (fclose(capture.wav) != 0) ok = false;
+        bool ok = !output.wav_failed &&
+                  wav_finish(output.wav, output.wav_samples);
+        if (fclose(output.wav) != 0) ok = false;
         if (ok)
             printf("WAV: %s, %llu 样本, %.2f 秒 @ %u Hz\n", wav_path,
-                   (unsigned long long)capture.wav_samples,
-                   (double)capture.wav_samples / (double)wav_rate, wav_rate);
+                   (unsigned long long)output.wav_samples,
+                   (double)output.wav_samples / (double)wav_rate, wav_rate);
         else {
             fprintf(stderr, "WAV 写入失败: %s\n", wav_path);
             wav_error = true;
         }
     }
-#if defined(PY32EMU_HAVE_PULSE)
-    if (audio) {
-        audio_close(&capture);
-        if (capture.audio_failures != 0u) audio_error = true;
-        printf("AUDIO: %llu 个写入失败\n",
-               (unsigned long long)capture.audio_failures);
-    }
-#endif
     if (soc.bus.faulted)
         printf("BUS: 故障地址=0x%08X\n", soc.bus.fault_address);
     printf("GPIOA: MODER=0x%08X ODR=0x%04X\n",

@@ -17,6 +17,8 @@ PY32F002A；CPU、总线和外设模型不保存具体型号容量，芯片描�
 - Flash/SRAM/系统存储器、Flash 页擦写、自编程和 BIN/HEX/ELF 加载。
 - RCC、GPIOA/B/F、EXTI、USART1、TIM1/TIM16、LPTIM1、SPI1、I2C1、
   ADC1、COMP1/2、CRC 和 IWDG。
+- 板级虚拟扬声器：TIM1 CH3/CH4 差分 PWM 重建为 PCM，CLI 可接 PulseAudio
+  或 WAV。
 - CLI 单步/跟踪、GPIO 脉冲、模拟毫伏输入、外设状态输出和 WAV 音频导出。
 - Web 调试台：寄存器、符号反汇编、多断点、内存、GPIO、COMP 模拟输入和
   USART 终端。
@@ -27,7 +29,9 @@ PY32F002A；CPU、总线和外设模型不保存具体型号容量，芯片描�
 include/py32emu/       公共 C 接口
 src/core/              Cortex-M0+ CPU、总线与反汇编器
 src/chips/             芯片描述和 SoC 装配
-src/peripherals/       可复用外设模型
+src/peripherals/       芯片内部可复用外设模型
+src/sim/               板级仿真：SimDevice、SimBoard、SimMcu 适配器
+src/sim/devices/       板级虚拟器件（扬声器等）
 src/firmware/          BIN、HEX、ELF 固件加载器
 src/cli/               命令行前端
 src/web/               Web 调试后端
@@ -78,9 +82,10 @@ USART1 TX (13): 48 65 6C 6C 6F 20 57 6F 72 6C 64 0D 0A
 可用 `--audio-rate` 指定。`--realtime` 只按墙钟推进，不输出声音。
 `--clock-hz` 指定固件运行时钟，本项目使用 48 MHz。
 
-`--wav` 在 TIM16 采样中断启动后记录 TIM1 `CCR4` 写入，生成 16 位单声道
-WAV；默认 22,050 Hz，可用 `--wav-rate` 指定。它记录的是固件写入的样本值，
-不是 PA0/PA1 引脚上的实际 PWM 波形。
+`--wav` 通过虚拟扬声器（[speaker.c](src/sim/devices/speaker.c)）把 TIM1
+CH3/CH4 的差分 PWM 比较值重建为 PCM，生成 16 位单声道 WAV；默认 22,050 Hz，
+可用 `--wav-rate` 指定。它记录的是扬声器模型输出的样本，不是 PA0/PA1 引脚上
+逐周期的方波电平。
 
 `py32f002ax5` 严格使用官方描述的 20 KiB Flash/3 KiB SRAM；经当前实物确认的
 隐藏容量器件可以显式选择 `py32f002a-32k`（32 KiB/4 KiB），两者不会混用容量边界。
@@ -96,8 +101,8 @@ make native
 
 等价于使用 `-O3 -march=native -flto` 重新构建。实测约 20.5–21.6 秒，即约
 51–54M 周期/秒。`make native` 只适合本机，CI 和发布构建仍使用默认可移植参数。
-实时音频需要 PulseAudio（WSLg 已提供）；`--realtime` 实测约 1.00x，
-`--audio` 在 `make native` 下约 0.97–0.99x，默认构建约 0.8–0.95x。
+实时音频需要 PulseAudio（WSLg 已提供）；当前加入通用 `sim/board` 网络后，
+native 构建约 0.7–0.8x 实时，尚未达到 1:1，后续继续优化。
 
 ## Web 调试台
 

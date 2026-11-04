@@ -32,6 +32,8 @@ CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c src/core/disassembler.c \
 	src/peripherals/flash.c \
 	src/peripherals/lptim.c \
 	src/peripherals/comp.c \
+	src/sim/device.c src/sim/board.c src/sim/mcu.c \
+	src/sim/mcu/py32.c src/sim/devices/speaker.c \
 	src/firmware/image.c
 CLI_SOURCES := src/cli/main.c
 WEB_SOURCES := src/web/backend.c
@@ -55,6 +57,11 @@ TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/iwdg.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/flash.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/lptim.o
 TEST_OBJECTS += $(OBJ_DIR)/src/peripherals/comp.o
+TEST_OBJECTS += $(OBJ_DIR)/src/sim/device.o
+TEST_OBJECTS += $(OBJ_DIR)/src/sim/board.o
+TEST_OBJECTS += $(OBJ_DIR)/src/sim/mcu.o
+TEST_OBJECTS += $(OBJ_DIR)/src/sim/mcu/py32.o
+TEST_OBJECTS += $(OBJ_DIR)/src/sim/devices/speaker.o
 DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(WEB_SOURCES:.c=.o))

@@ -355,7 +355,10 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         return out;
     }
     pc = cpu->r[CORTEX_M0_PC];
-    if (!load(cpu, pc, 2, &raw)) goto done;
+    if (!py32_bus_fetch16(cpu->bus, pc, &raw)) {
+        raise_hardfault(cpu);
+        goto done;
+    }
     op = (uint16_t)raw;
     cpu->last_pc = pc;
     cpu->last_instruction = op;

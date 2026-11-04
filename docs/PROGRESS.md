@@ -3,37 +3,53 @@
 当前总体完成度：约 70%（按官方示例逐项矩阵口径）；该数字不代表完整芯片模拟，
 也不因第三方固件联调或性能优化自动上调。
 
+## 2026-11-04：按 PicEmu 结构补齐 sim 层
+
+- 新增 `include/py32emu/sim/{device,mcu,board,limits}.h` 和
+  `src/sim/{device,mcu,board}.c`，按 PicEmu 的 `SimDevice`/`SimMcu`/`SimBoard`
+  边界实现板级网络。
+- 新增 `include/py32emu/sim/mcu/py32.h` 和 `src/sim/mcu/py32.c`：把 Py32Soc
+  包装成通用 MCU 适配器，PA0/PA1 的 TIM1_CH3/CH4 作为可观察 PWM 引脚。
+- 新增 `include/py32emu/sim/devices/speaker.h` 和
+  `src/sim/devices/speaker.c`：扬声器是独立 `SimDevice`，只接收两个引脚电平，
+  按 22,050 Hz 对差分电平积分重建 PCM，不读取 SoC/TIM 寄存器。
+- 删除此前误放在 `src/peripherals` 和 `src/devices` 的扬声器实现；SoC 不再
+  持有扬声器，CLI 通过 `Py32Mcu + SimBoard` 连接 `SPK_NEG/SPK_POS` 网络。
+- 当前 native 构建在加入通用网络解析后约 0.7–0.8x 实时，尚未达到 1:1；
+  后续需要继续优化引脚解析/CPU 热点，不能把当前结果写成实时达标。
+
 ## 2026-11-04：实时音频与 1:1 系统时钟
 
 - CLI 新增 `--audio`、`--audio-rate`、`--realtime` 和 `--clock-hz`。
-  `--audio` 通过 PulseAudio 播放 TIM1 `CCR4` 的 22,050 Hz 样本，并以
-  100 ms 目标缓冲、1024 样本块写入；`--realtime` 只按墙钟推进，不依赖声卡。
+  音频由独立的 `SimSpeaker` 板级器件产生：`Py32Mcu` 适配器把 PA0/PA1 的
+  TIM1 CH3/CH4 电平送入 `SimBoard` 网络，扬声器重建 PCM 后通过 sink 交给
+  前端；`--audio` 的 PulseAudio 输出只是其中一个 sink，以 100 ms 目标缓冲、
+  1024 样本块写入。`--realtime` 只按墙钟推进，不依赖声卡。
 - 主循环按 1 ms 模拟时间切片，用 `CLOCK_MONOTONIC` 计算目标墙钟并睡眠；
   音频写入阻塞时允许落后，不在寄存器事务中间强制同步。
-- 实测（NSF 固件，300M 指令，6.832 秒音频）：`--realtime` 为 6.832 秒模拟 /
-  6.833 秒墙钟（1.00x）；`--audio` 在 `make native` 下约 0.97–0.99x，
-  默认 `-O2` 约 0.8–0.95x，具体受宿主负载影响。用 PulseAudio
-  `RDPSink.monitor` 录制 11.45 秒，峰值 12675、RMS 约 1374，确认声音实际
-  进入系统音频 sink。
+- 实测（NSF 固件，300M 指令，6.832 秒音频）：`--realtime` 和 `--audio`
+  在 native 构建下约 0.7–0.8x 实时，默认 `-O2` 更低；加入通用 sim/board
+  后尚未达到 1:1，具体受宿主负载影响。用 PulseAudio `RDPSink.monitor`
+  录制 11.45 秒，峰值 12675、RMS 约 1374，确认声音实际进入系统音频 sink。
 - `make native` 目标封装 `-O3 -march=native -flto`；没有 PulseAudio 的构建
   仍可正常编译，`--audio` 会明确报错并提示安装 `libpulse-dev`。
-- 边界：虚拟扬声器取 TIM1 `CCR4` 的固件写入值（等价理想重构），没有建模
-  PA0/PA1 的 PWM 方波、外部滤波/放大和模拟噪声；Windows 原生构建尚未接入
-  WinMM，当前通过 WSLg 的 PulseAudio 输出。
+- 边界：虚拟扬声器建模 TIM1 CH3/CH4 的差分比较值（等价理想低通重构），
+  没有逐周期采样 PA0/PA1 的 PWM 方波，也没有外部滤波/放大和模拟噪声；
+  Windows 原生构建尚未接入 WinMM，当前通过 WSLg 的 PulseAudio 输出。
 
 ## 2026-11-04：WAV 音频导出
 
-- CLI 新增 `--wav FILE` 和 `--wav-rate Hz`：在 TIM16 采样中断启动后捕获
-  TIM1 `CCR4` 写入，转换为 16 位单声道 WAV，默认 22,050 Hz。
-- 捕获的是固件写入的 8 位样本（以 128 为中心），不是 PA0/PA1 引脚 PWM
-  波形，也不包含外部滤波/放大电路；初始化阶段的中点写入会忽略。
-- 用 NSF 播放器实测：300M 指令生成 `150370` 个样本、`6.82` 秒，样本数与
-  固件 `played_samples` 完全一致；WAV 峰值 12032、RMS 约 1613。
+- CLI 新增 `--wav FILE` 和 `--wav-rate Hz`：虚拟扬声器把 TIM1 CH3/CH4
+  的差分 PWM 比较值重建为 16 位单声道 WAV，默认 22,050 Hz。
+- 扬声器输出的是差分 PWM 的重建样本，不是 PA0/PA1 引脚逐周期方波，也不
+  包含外部滤波/放大电路；初始化阶段尚未建立差分关系时忽略 CH4。
+- 用 NSF 播放器实测：300M 指令生成 `150372` 个样本、`6.82` 秒，与固件
+  `played_samples` 基本一致（含 2 个初始化零样本）；WAV 峰值 12032、
+  RMS 约 1613。
 - 新增 `tests/firmware/wav_tone.c` 和 `tests/integration/test_wav_export.sh`：
-  真实 Cortex-M0+ 固件写入 256 个已知样本，测试校验 WAV 头、长度和每个
-  16 位 PCM 值；单元测试覆盖 TIM1 比较值回调。
-- 边界：仍没有实时音频设备、环形缓冲和 PWM 引脚波形；要实时听声需要另接
-  音频后端。
+  真实 Cortex-M0+ 固件写入 256 个已知差分样本，测试校验 WAV 头、长度和每个
+  16 位 PCM 值；单元测试覆盖扬声器 sink 和 SoC 的 TIM1 连线。
+- 边界：本阶段只做离线导出；实时输出由后续“实时音频与 1:1 系统时钟”阶段补齐。
 
 ## 2026-11-04：解释器性能优化
 

@@ -36,6 +36,15 @@ void py32_bus_init(Py32Bus *bus)
     memset(bus, 0, sizeof(*bus));
 }
 
+void py32_bus_set_fetch(Py32Bus *bus, const uint8_t *memory,
+                        uint32_t base, uint32_t size)
+{
+    if (bus == NULL) return;
+    bus->fetch_memory = memory;
+    bus->fetch_base = base;
+    bus->fetch_size = size;
+}
+
 static bool add_region(Py32Bus *bus, const Py32BusRegion *region)
 {
     size_t i;

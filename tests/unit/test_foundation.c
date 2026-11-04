@@ -3,6 +3,7 @@
 #include "py32emu/core/bus.h"
 #include "py32emu/core/cortex_m0.h"
 #include "py32emu/core/disassembler.h"
+#include "py32emu/sim/devices/speaker.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -22,15 +23,14 @@ static void put_le32(uint8_t *p, uint32_t value)
     p[3] = (uint8_t)(value >> 24);
 }
 
-static unsigned compare_count, compare_channel;
-static uint32_t compare_value;
+static unsigned speaker_samples;
+static int16_t speaker_last;
 
-static void capture_compare(void *context, unsigned channel, uint32_t value)
+static void capture_speaker(void *context, int16_t sample)
 {
     (void)context;
-    ++compare_count;
-    compare_channel = channel;
-    compare_value = value;
+    ++speaker_samples;
+    speaker_last = sample;
 }
 
 static uint16_t spi_echo(void *context, uint16_t output, unsigned bits)
@@ -423,15 +423,18 @@ int main(void)
     assert(value == 0x11u);
     assert(py32_bus_read(&soc.bus, 0x40012C40u, 4, &value));
     assert(value == 0x22u);
-    soc.tim1.compare_callback = capture_compare;
-    soc.tim1.compare_context = NULL;
-    assert(py32_bus_write(&soc.bus, 0x40012C40u, 4, 0x5Au));
-    assert(compare_count == 1u && compare_channel == 4u &&
-           compare_value == 0x5Au);
-    assert(py32_bus_write(&soc.bus, 0x40012C3Cu, 4, 0x33u));
-    assert(compare_count == 2u && compare_channel == 3u &&
-           compare_value == 0x33u);
-    soc.tim1.compare_callback = NULL;
+    {
+        SimSpeaker speaker;
+        sim_speaker_init(&speaker, "speaker", capture_speaker, NULL, 22050u);
+        speaker.base.ops->pin_changed(&speaker.base, 0u, SIM_LEVEL_LOW);
+        speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_HIGH);
+        speaker.base.ops->tick(&speaker.base, 2176u, 48000000u);
+        assert(speaker_samples == 1u && speaker_last > 30000);
+        speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_LOW);
+        speaker.base.ops->tick(&speaker.base, 2176u, 48000000u);
+        assert(speaker_samples == 2u && speaker_last == 0);
+        sim_speaker_set_sink(&speaker, NULL, NULL);
+    }
     assert(py32_bus_write(&soc.bus, 0x40012C0Cu, 4, 1u));
     assert(py32_bus_write(&soc.bus, 0x40012C00u, 4, 1u));
     assert(py32_timer_tick(&soc.tim1, 2u));
