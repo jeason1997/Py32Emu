@@ -15,6 +15,8 @@ BUILD_DIR := build
 OBJ_DIR := $(BUILD_DIR)/obj
 TARGET := $(BUILD_DIR)/py32emu
 TEST_TARGET := $(BUILD_DIR)/tests/test_foundation
+CPU_TEST_TARGET := $(BUILD_DIR)/tests/test_cpu_instructions
+AUDIO_TEST_TARGET := $(BUILD_DIR)/tests/test_audio_reconstruction
 WEB_TARGET := $(BUILD_DIR)/py32emu-web-core
 
 CORE_SOURCES := src/core/bus.c src/core/cortex_m0.c src/core/disassembler.c \
@@ -66,6 +68,8 @@ DEPFILES := $(sort $(TARGET_OBJECTS:.o=.d) $(TEST_OBJECTS:.o=.d))
 WEB_OBJECTS := $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o) \
 	$(WEB_SOURCES:.c=.o))
 DEPFILES += $(WEB_OBJECTS:.o=.d)
+DEPFILES += $(OBJ_DIR)/tests/unit/test_cpu_instructions.d
+DEPFILES += $(OBJ_DIR)/tests/unit/test_audio_reconstruction.d
 
 .PHONY: all web-core run-web test unit-test integration-test clean native
 
@@ -76,6 +80,14 @@ $(TARGET): $(TARGET_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o $@ $(CLI_LIBS)
 
 $(TEST_TARGET): $(TEST_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(CPU_TEST_TARGET): $(OBJ_DIR)/tests/unit/test_cpu_instructions.o $(OBJ_DIR)/src/core/bus.o $(OBJ_DIR)/src/core/cortex_m0.o
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $^ -o $@
+
+$(AUDIO_TEST_TARGET): $(OBJ_DIR)/tests/unit/test_audio_reconstruction.o $(addprefix $(OBJ_DIR)/,$(CORE_SOURCES:.c=.o))
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $^ -o $@
 
@@ -92,8 +104,10 @@ $(OBJ_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
-unit-test: $(TEST_TARGET)
+unit-test: $(TEST_TARGET) $(CPU_TEST_TARGET) $(AUDIO_TEST_TARGET)
 	$(TEST_TARGET)
+	$(CPU_TEST_TARGET)
+	$(AUDIO_TEST_TARGET)
 
 integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_minimal_firmware.sh
@@ -114,6 +128,7 @@ integration-test: $(TARGET) $(WEB_TARGET)
 	sh tests/integration/test_nvic_preemption.sh
 	sh tests/integration/test_dual_stack.sh
 	sh tests/integration/test_thumb_control_flow.sh
+	sh tests/integration/test_thumb_register_edges.sh
 	sh tests/integration/test_hardfault_paths.sh
 	sh tests/integration/test_wav_export.sh
 	sh tests/integration/test_iwdg_reset.sh

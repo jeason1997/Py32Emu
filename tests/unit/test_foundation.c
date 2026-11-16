@@ -87,6 +87,7 @@ static void test_pwm_configuration_cache(void)
     image.data = firmware;
     image.size = sizeof(firmware);
     image.load_address = 0x08000000u;
+    py32_soc_init(&soc);
     assert(py32_soc_configure(&soc, py32f002ax5_description(), &image,
                               error, sizeof(error)));
     py32_mcu_init(&mcu, &soc, 48000000u);
@@ -181,6 +182,13 @@ int main(void)
     assert(py32_thumb_disassemble(0x08000100u, 0xF000u, 0xF800u,
                                   assembly, sizeof(assembly)) == 2u);
     assert(strncmp(assembly, "bl 0x", 5u) == 0);
+    assert(py32_thumb_disassemble(0x08000100u, 0xF3EFu, 0x8006u,
+                                  assembly, sizeof(assembly)) == 2u);
+    assert(strcmp(assembly, "mrs r0, epsr") == 0);
+    py32_thumb_disassemble(0x08000100u, 0x4780u, 0u, assembly, sizeof(assembly));
+    assert(strcmp(assembly, "blx r0") == 0);
+    py32_thumb_disassemble(0x08000100u, 0xE7FEu, 0u, assembly, sizeof(assembly));
+    assert(strcmp(assembly, "b 0x08000100") == 0);
 
     py32_bus_init(&bus);
     assert(py32_bus_add_memory(&bus, "flash", 0x08000000u,
@@ -527,6 +535,7 @@ int main(void)
     {
         SimSpeaker speaker;
         sim_speaker_init(&speaker, "speaker", capture_speaker, NULL, 22050u);
+        sim_speaker_set_filter(&speaker, false);
         speaker.base.ops->pin_changed(&speaker.base, 0u, SIM_LEVEL_LOW);
         speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_HIGH);
         speaker.base.ops->tick(&speaker.base, 2177u, 48000000u);

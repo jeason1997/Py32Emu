@@ -5,5 +5,6 @@
 #define SIM_MAX_ENDPOINTS 4u
 #define SIM_MAX_DEVICES 16u
 #define SIM_MAX_PARTS 8u
+#define SIM_MAX_PIN_EVENTS 128u
 
 #endif

@@ -162,31 +162,78 @@ void sim_board_reset(SimBoard *board)
     sim_board_resolve(board);
 }
 
+static void advance_devices(SimBoard *board, unsigned cycles, bool flush)
+{
+    unsigned i;
+    board->device_cycles += cycles;
+    if (!flush && board->device_cycles < 16u) return;
+    if (board->device_cycles == 0u) return;
+    for (i = 0u; i < board->device_count; ++i) {
+        SimDevice *device = board->devices[i];
+        if (device->ops != NULL && device->ops->tick != NULL)
+            device->ops->tick(device, board->device_cycles,
+                              board->mcu->cycles_per_second);
+    }
+    board->device_cycles = 0u;
+}
+
+static void replay_pin_events(SimBoard *board, unsigned cycles)
+{
+    unsigned i, elapsed = 0u;
+    for (i = 0u; i < board->mcu_count; ++i) {
+        board->mcus[i]->replay_pins = true;
+        board->mcus[i]->pin_events_visible = 0u;
+    }
+    for (;;) {
+        unsigned next = cycles;
+        bool pending = false;
+        for (i = 0u; i < board->mcu_count; ++i) {
+            SimMcu *mcu = board->mcus[i];
+            if (mcu->pin_events_visible < mcu->pin_event_count) {
+                unsigned at = mcu->pin_events[mcu->pin_events_visible].cycle;
+                if (!pending || at < next) next = at;
+                pending = true;
+            }
+        }
+        if (!pending) break;
+        advance_devices(board, next - elapsed, true);
+        elapsed = next;
+        for (i = 0u; i < board->mcu_count; ++i) {
+            SimMcu *mcu = board->mcus[i];
+            while (mcu->pin_events_visible < mcu->pin_event_count &&
+                   mcu->pin_events[mcu->pin_events_visible].cycle == next)
+                ++mcu->pin_events_visible;
+        }
+        sim_board_resolve(board);
+    }
+    advance_devices(board, cycles - elapsed, false);
+    for (i = 0u; i < board->mcu_count; ++i) {
+        board->mcus[i]->replay_pins = false;
+        board->mcus[i]->pin_dirty = false;
+    }
+}
+
 unsigned sim_board_step(SimBoard *board)
 {
     unsigned cycles = 0;
     unsigned i;
-    bool dirty = false;
+    bool dirty = false, timed = false;
     for (i = 0; i < board->mcu_count; ++i) {
         unsigned consumed = sim_mcu_step(board->mcus[i]);
         if (consumed > cycles) cycles = consumed;
         if (board->mcus[i]->pin_dirty) dirty = true;
+        if (board->mcus[i]->timed_edges) timed = true;
+    }
+    if (timed) {
+        replay_pin_events(board, cycles);
+        return cycles;
     }
     /*
      * 器件按 16 周期批量推进，而不是每条指令调用一次。扬声器的音频
      * 采样周期为 2000+ 周期，这个粒度远小于采样间隔，但能显著降低
      * 48 MHz 模拟时的函数调用开销。
      */
-    board->device_cycles += cycles;
-    if (board->device_cycles >= 16u || dirty) {
-        for (i = 0; i < board->device_count; ++i) {
-            SimDevice *device = board->devices[i];
-            if (device->ops != NULL && device->ops->tick != NULL)
-                device->ops->tick(device, board->device_cycles,
-                                  board->mcu->cycles_per_second);
-        }
-        board->device_cycles = 0u;
-    }
+    advance_devices(board, cycles, dirty);
     if (dirty) {
         for (i = 0; i < board->mcu_count; ++i)
             board->mcus[i]->pin_dirty = false;

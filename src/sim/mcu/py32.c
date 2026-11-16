@@ -1,6 +1,7 @@
 #include "py32emu/sim/mcu/py32.h"
 
 #include <stddef.h>
+#include <assert.h>
 
 enum {
     PY32_PIN_PA0 = 0u,
@@ -20,14 +21,46 @@ static const Py32Gpio *gpio_for_pin(const Py32Soc *soc, unsigned port)
     return NULL;
 }
 
-static SimLevel pwm_level(const Py32Soc *soc, unsigned channel)
+static SimLevel timer_level(const Py32Timer *tim, unsigned channel)
 {
-    const Py32Timer *tim = &soc->tim1;
     uint32_t polarity_bit = channel == 3u ? (1u << 9) : (1u << 13);
     uint32_t compare = py32_timer_compare(tim, channel);
     bool high = tim->reg[TIM1_CNT] < compare;
     if ((tim->reg[TIM1_CCER] & polarity_bit) != 0u) high = !high;
     return high ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
+}
+
+static SimLevel pwm_level(const Py32Soc *soc, unsigned channel)
+{
+    return timer_level(&soc->tim1, channel);
+}
+
+static void pin_event(SimMcu *mcu, unsigned cycle, unsigned pin, SimLevel level)
+{
+    /* 当前单步最多 32 周期、两个输出，至多 66 个事件，容量为 128。 */
+    assert(mcu->pin_event_count < SIM_MAX_PIN_EVENTS);
+    SimPinEvent *event = &mcu->pin_events[mcu->pin_event_count++];
+    event->cycle = cycle;
+    event->pin = pin;
+    event->level = level;
+}
+
+static unsigned next_pwm_edge(const Py32Timer *timer, unsigned remaining)
+{
+    uint32_t count = timer->reg[TIM1_CNT];
+    uint32_t arr = timer->reg[TIM1_ARR] & 0xFFFFu;
+    uint32_t psc = timer->reg[10] & 0xFFFFu;
+    uint64_t ticks = count >= arr ? 1u : (uint64_t)arr + 1u - count;
+    unsigned channel;
+    uint64_t cycles;
+    for (channel = 3u; channel <= 4u; ++channel) {
+        uint32_t compare = py32_timer_compare(timer, channel);
+        if (compare > count && compare <= arr && compare - count < ticks)
+            ticks = compare - count;
+    }
+    cycles = timer->prescaler_counter > psc ? (ticks - 1u) * (psc + 1u) + 1u :
+             ticks * (psc + 1u) - timer->prescaler_counter;
+    return cycles < remaining ? (unsigned)cycles : remaining;
 }
 
 static bool pwm_active(const Py32Soc *soc)
@@ -56,6 +89,8 @@ static void py32_mcu_reset(SimMcu *mcu)
     adapter->last_pa0 = SIM_LEVEL_Z;
     adapter->last_pa1 = SIM_LEVEL_Z;
     adapter->pwm_generation = UINT64_MAX;
+    mcu->pin_event_count = mcu->pin_events_visible = 0u;
+    mcu->replay_pins = mcu->timed_edges = false;
     mcu->pin_dirty = true;
     (void)py32_soc_reset(adapter->soc, error, sizeof(error));
 }
@@ -63,8 +98,21 @@ static void py32_mcu_reset(SimMcu *mcu)
 static unsigned py32_mcu_step(SimMcu *mcu)
 {
     Py32Mcu *adapter = mcu->state;
+    Py32Timer *timer = &adapter->soc->tim1;
+    uint32_t initial_count = timer->reg[TIM1_CNT];
+    uint32_t initial_prescaler = timer->prescaler_counter;
+    uint32_t initial_ccr3 = timer->active_ccr[2];
+    uint32_t initial_ccr4 = timer->active_ccr[3];
+    SimLevel old_pa0 = adapter->last_pa0, old_pa1 = adapter->last_pa1;
     SimLevel pa0 = SIM_LEVEL_Z, pa1 = SIM_LEVEL_Z;
-    unsigned cycles = py32_soc_step(adapter->soc).cycles;
+    unsigned cycles;
+    if (adapter->pwm_generation != adapter->soc->bus.io_write_generation) {
+        old_pa0 = py32_mcu_pin_drive(mcu, 0u);
+        old_pa1 = py32_mcu_pin_drive(mcu, 1u);
+    }
+    cycles = py32_soc_step(adapter->soc).cycles;
+    mcu->pin_event_count = 0u;
+    mcu->timed_edges = false;
     /* 引脚复用/时钟/输出使能只在寄存器写入后重查，计数器和有效 CCR
      * 仍逐指令观察；更新事件产生的比较值变化不能被缓存掉。 */
     if (adapter->pwm_generation != adapter->soc->bus.io_write_generation) {
@@ -74,6 +122,40 @@ static unsigned py32_mcu_step(SimMcu *mcu)
     if (adapter->pwm_enabled) {
         pa0 = pwm_level(adapter->soc, 3u);
         pa1 = pwm_level(adapter->soc, 4u);
+    }
+    if (cycles > 1u && adapter->pwm_enabled) {
+        Py32Timer trace = *timer;
+        unsigned elapsed = 0u;
+        SimLevel previous0 = old_pa0, previous1 = old_pa1;
+        trace.reg[TIM1_CNT] = initial_count;
+        trace.prescaler_counter = initial_prescaler;
+        trace.active_ccr[2] = initial_ccr3;
+        trace.active_ccr[3] = initial_ccr4;
+        pin_event(mcu, 0u, 0u, old_pa0);
+        pin_event(mcu, 0u, 1u, old_pa1);
+        while (elapsed < cycles) {
+            unsigned span = next_pwm_edge(&trace, cycles - elapsed);
+            SimLevel level0, level1;
+            (void)py32_timer_tick(&trace, span);
+            elapsed += span;
+            level0 = timer_level(&trace, 3u);
+            level1 = timer_level(&trace, 4u);
+            if (level0 != previous0) {
+                pin_event(mcu, elapsed, 0u, level0);
+                if (elapsed < cycles) mcu->timed_edges = true;
+                previous0 = level0;
+            }
+            if (level1 != previous1) {
+                pin_event(mcu, elapsed, 1u, level1);
+                if (elapsed < cycles) mcu->timed_edges = true;
+                previous1 = level1;
+            }
+        }
+    } else if (pa0 != old_pa0 || pa1 != old_pa1) {
+        pin_event(mcu, 0u, 0u, old_pa0);
+        pin_event(mcu, 0u, 1u, old_pa1);
+        if (pa0 != old_pa0) pin_event(mcu, cycles, 0u, pa0);
+        if (pa1 != old_pa1) pin_event(mcu, cycles, 1u, pa1);
     }
     if (pa0 != adapter->last_pa0 || pa1 != adapter->last_pa1) {
         adapter->last_pa0 = pa0;
@@ -142,6 +224,8 @@ void py32_mcu_init(Py32Mcu *adapter, Py32Soc *soc, uint32_t clock_hz)
     adapter->base.state = adapter;
     adapter->base.cycles_per_second = clock_hz != 0u ? clock_hz : 1u;
     adapter->base.pin_dirty = true;
+    adapter->base.pin_event_count = adapter->base.pin_events_visible = 0u;
+    adapter->base.replay_pins = adapter->base.timed_edges = false;
     adapter->soc = soc;
     adapter->last_pa0 = SIM_LEVEL_Z;
     adapter->last_pa1 = SIM_LEVEL_Z;

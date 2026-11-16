@@ -2,11 +2,17 @@
 #define PY32EMU_SIM_MCU_H
 
 #include "py32emu/sim/device.h"
+#include "py32emu/sim/limits.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
 typedef struct SimMcu SimMcu;
+
+typedef struct {
+    unsigned cycle, pin;
+    SimLevel level;
+} SimPinEvent;
 
 typedef struct {
     void (*reset)(SimMcu *mcu);
@@ -26,6 +32,10 @@ struct SimMcu {
     void *state;
     uint32_t cycles_per_second;
     bool pin_dirty;
+    /* 本条指令内有序的引脚事件；cycle 为相对指令起点的周期偏移。 */
+    SimPinEvent pin_events[SIM_MAX_PIN_EVENTS];
+    unsigned pin_event_count, pin_events_visible;
+    bool replay_pins, timed_edges;
 };
 
 void sim_mcu_reset(SimMcu *mcu);

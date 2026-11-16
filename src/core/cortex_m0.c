@@ -16,16 +16,23 @@ static void save_visible_sp(CortexM0 *cpu)
     else cpu->msp = cpu->r[CORTEX_M0_SP];
 }
 
+static bool privileged(const CortexM0 *cpu)
+{
+    return cpu->exception_number != 0u || (cpu->control & 1u) == 0u;
+}
+
 static uint32_t read_special(const CortexM0 *cpu, unsigned sysm)
 {
+    if (!privileged(cpu) && (sysm == 8u || sysm == 9u || sysm == 16u))
+        return 0u;
     switch (sysm) {
     case 0: return cpu->xpsr & 0xF0000000u;
     case 1: return (cpu->xpsr & 0xF0000000u) | cpu->exception_number;
-    case 2: return cpu->xpsr & 0xF1000000u;
-    case 3: return cpu->xpsr;
+    case 2: return cpu->xpsr & 0xF0000000u;
+    case 3: return (cpu->xpsr & 0xF0000000u) | cpu->exception_number;
     case 5: return cpu->exception_number;
-    case 6: return cpu->xpsr & 0x01000000u;
-    case 7: return (cpu->xpsr & 0x01000000u) | cpu->exception_number;
+    case 6: return 0u; /* MRS 不能读出 EPSR，包括 T 位。 */
+    case 7: return cpu->exception_number;
     case 8: return thread_uses_psp(cpu) ? cpu->msp : cpu->r[CORTEX_M0_SP];
     case 9: return thread_uses_psp(cpu) ? cpu->r[CORTEX_M0_SP] : cpu->psp;
     case 16: return cpu->primask ? 1u : 0u;
@@ -36,10 +43,14 @@ static uint32_t read_special(const CortexM0 *cpu, unsigned sysm)
 
 static bool write_special(CortexM0 *cpu, unsigned sysm, uint32_t value)
 {
+    if (!privileged(cpu) && (sysm == 8u || sysm == 9u || sysm == 16u || sysm == 20u))
+        return true;
     switch (sysm) {
-    case 0:
+    case 0: case 1: case 2: case 3:
         cpu->xpsr = (cpu->xpsr & ~0xF0000000u) | (value & 0xF0000000u);
         return true;
+    case 5: case 6: case 7:
+        return true; /* IPSR/EPSR 为只读，合法别名写入不能当未定义指令。 */
     case 8:
         value &= ~3u;
         cpu->msp = value;
@@ -59,7 +70,7 @@ static bool write_special(CortexM0 *cpu, unsigned sysm, uint32_t value)
             cpu->control = value & 3u;
             cpu->r[CORTEX_M0_SP] = (cpu->control & 2u) != 0u
                 ? cpu->psp : cpu->msp;
-        }
+        } else cpu->control = (cpu->control & 2u) | (value & 1u);
         return true;
     default: return false;
     }
@@ -179,7 +190,7 @@ bool cortex_m0_reset(CortexM0 *cpu, uint32_t vector_base)
 
 bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
 {
-    uint32_t sp, handler, exc_return;
+    uint32_t sp, handler, exc_return, alignment;
     uint32_t frame[8];
     unsigned i;
     if (cpu == NULL || cpu->stopped || exception_number == 0u ||
@@ -187,14 +198,17 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
     {
         bool use_psp = thread_uses_psp(cpu);
         save_visible_sp(cpu);
-        sp = (use_psp ? cpu->psp : cpu->msp) - 32u;
+        uint32_t original_sp = use_psp ? cpu->psp : cpu->msp;
+        alignment = (original_sp & 4u) != 0u ? 1u << 9 : 0u;
+        sp = (original_sp - 32u) & ~7u;
         exc_return = cpu->exception_number != 0u
             ? 0xFFFFFFF1u : use_psp ? 0xFFFFFFFDu : 0xFFFFFFF9u;
     }
     frame[0] = cpu->r[0]; frame[1] = cpu->r[1];
     frame[2] = cpu->r[2]; frame[3] = cpu->r[3];
     frame[4] = cpu->r[12]; frame[5] = cpu->r[CORTEX_M0_LR];
-    frame[6] = cpu->r[CORTEX_M0_PC]; frame[7] = cpu->xpsr;
+    frame[6] = cpu->r[CORTEX_M0_PC];
+    frame[7] = (cpu->xpsr & ~(1u << 9)) | alignment;
     for (i = 0; i < 8u; ++i)
         if (!store(cpu, sp + i * 4u, 4, frame[i])) return false;
     if (!load(cpu, cpu->vector_table + exception_number * 4u, 4, &handler))
@@ -212,6 +226,7 @@ bool cortex_m0_enter_exception(CortexM0 *cpu, unsigned exception_number)
         cpu->psp = sp;
     else cpu->msp = sp;
     cpu->r[CORTEX_M0_SP] = cpu->msp;
+    cpu->control &= ~2u; /* Handler 总是使用 MSP，返回栈由 EXC_RETURN 选择。 */
     cpu->r[CORTEX_M0_LR] = exc_return;
     cpu->r[CORTEX_M0_PC] = handler & ~1u;
     cpu->waiting = false;
@@ -236,14 +251,17 @@ static bool exception_return(CortexM0 *cpu, uint32_t exc_return)
     cpu->r[2] = frame[2]; cpu->r[3] = frame[3];
     cpu->r[12] = frame[4]; cpu->r[CORTEX_M0_LR] = frame[5];
     cpu->r[CORTEX_M0_PC] = frame[6] & ~1u;
-    cpu->xpsr = frame[7] | FLAG(CORTEX_M0_XPSR_T);
-    if (return_psp) cpu->psp = sp + 32u;
-    else cpu->msp = sp + 32u;
+    cpu->xpsr = frame[7] & 0xF10001FFu;
+    sp += 32u + ((frame[7] & (1u << 9)) != 0u ? 4u : 0u);
+    if (return_psp) cpu->psp = sp;
+    else cpu->msp = sp;
     if (cpu->exception_depth > 0u) --cpu->exception_depth;
     cpu->exception_number = cpu->exception_depth > 0u
         ? cpu->exception_stack[cpu->exception_depth - 1u] : 0u;
+    cpu->control = (cpu->control & ~2u) | (return_psp ? 2u : 0u);
     cpu->r[CORTEX_M0_SP] = cpu->exception_number != 0u
         ? cpu->msp : ((cpu->control & 2u) != 0u ? cpu->psp : cpu->msp);
+    cpu->event_register = true;
     return true;
 }
 
@@ -354,6 +372,10 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         cpu->cycles += 1u;
         return out;
     }
+    if ((cpu->xpsr & FLAG(CORTEX_M0_XPSR_T)) == 0u) {
+        raise_hardfault(cpu);
+        goto done;
+    }
     pc = cpu->r[CORTEX_M0_PC];
     if (!py32_bus_fetch16(cpu->bus, pc, &raw)) {
         raise_hardfault(cpu);
@@ -409,9 +431,12 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         }
     } else if ((op & 0xFC00u) == 0x4400u) {
         rd = (op & 7u) | ((op >> 4) & 8u); rm = (op >> 3) & 15u;
-        if (((op >> 8) & 3u) == 0u) cpu->r[rd] += cpu->r[rm];
-        else if (((op >> 8) & 3u) == 1u) (void)sub_flags(cpu, cpu->r[rd], cpu->r[rm], 0);
-        else if (((op >> 8) & 3u) == 2u) cpu->r[rd] = cpu->r[rm];
+        /* 可见 PC 为本条指令地址 +4，而不是已预取的下一条地址。 */
+        a = rd == CORTEX_M0_PC ? pc + 4u : cpu->r[rd];
+        b = rm == CORTEX_M0_PC ? pc + 4u : cpu->r[rm];
+        if (((op >> 8) & 3u) == 0u) cpu->r[rd] = a + b;
+        else if (((op >> 8) & 3u) == 1u) (void)sub_flags(cpu, a, b, 0);
+        else if (((op >> 8) & 3u) == 2u) cpu->r[rd] = b;
         else {
             value = cpu->r[rm];
             if (BIT(op, 7)) cpu->r[CORTEX_M0_LR] = (pc + 2u) | 1u;
@@ -419,6 +444,11 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
         }
         if (rd == CORTEX_M0_PC && ((op >> 8) & 3u) != 1u)
             cpu->r[rd] &= ~1u;
+        if (rd == CORTEX_M0_SP && (((op >> 8) & 3u) == 0u ||
+                                   ((op >> 8) & 3u) == 2u)) {
+            cpu->r[rd] &= ~3u;
+            save_visible_sp(cpu);
+        }
     } else if ((op & 0xF800u) == 0x4800u) {
         rd = (op >> 8) & 7u;
         address = ((pc + 4u) & ~3u) + ((op & 0xFFu) << 2);
@@ -489,40 +519,48 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             break;
         }
     } else if ((op & 0xFFE8u) == 0xB660u && BIT(op, 1)) {
-        cpu->primask = BIT(op, 4) != 0u; /* CPSIE i / CPSID i */
+        if (privileged(cpu)) cpu->primask = BIT(op, 4) != 0u;
     } else if ((op & 0xFE00u) == 0xB400u) {
         unsigned mask = op & 0xFFu;
+        unsigned count = 0u;
+        uint32_t new_sp;
         if (BIT(op, 8)) mask |= 1u << CORTEX_M0_LR;
-        for (rn = 16u; rn-- > 0u;) if (mask & (1u << rn)) {
-            cpu->r[CORTEX_M0_SP] -= 4u;
-            if (!store(cpu, cpu->r[CORTEX_M0_SP], 4, cpu->r[rn])) break;
+        for (rn = 0u; rn < 15u; ++rn) if (mask & (1u << rn)) ++count;
+        new_sp = address = cpu->r[CORTEX_M0_SP] - 4u * count;
+        for (rn = 0u; rn < 15u; ++rn) if (mask & (1u << rn)) {
+            if (!store(cpu, address, 4, cpu->r[rn])) goto done;
+            address += 4u;
         }
+        cpu->r[CORTEX_M0_SP] = new_sp;
         save_visible_sp(cpu);
     } else if ((op & 0xFE00u) == 0xBC00u) {
         unsigned mask = op & 0xFFu;
+        address = cpu->r[CORTEX_M0_SP];
         for (rn = 0; rn < 8u; ++rn) if (mask & (1u << rn)) {
-            if (!load(cpu, cpu->r[CORTEX_M0_SP], 4, &cpu->r[rn])) break;
-            cpu->r[CORTEX_M0_SP] += 4u;
+            if (!load(cpu, address, 4, &cpu->r[rn])) goto done;
+            address += 4u;
         }
-        if (!cpu->stopped && BIT(op, 8)) {
-            if (load(cpu, cpu->r[CORTEX_M0_SP], 4, &value)) {
-                cpu->r[CORTEX_M0_SP] += 4u;
-                save_visible_sp(cpu);
-                branch_exchange(cpu, value);
-            }
+        if (BIT(op, 8)) {
+            if (!load(cpu, address, 4, &value)) goto done;
+            address += 4u;
         }
+        cpu->r[CORTEX_M0_SP] = address;
         save_visible_sp(cpu);
+        if (BIT(op, 8)) branch_exchange(cpu, value);
     } else if ((op & 0xF000u) == 0xC000u) {
         rn = (op >> 8) & 7u; address = cpu->r[rn];
         for (rd = 0; rd < 8u; ++rd) if (op & (1u << rd)) {
-            if (BIT(op, 11)) { if (!load(cpu, address, 4, &cpu->r[rd])) break; }
-            else if (!store(cpu, address, 4, cpu->r[rd])) break;
+            /* 故障入口可能已切换到 Handler，不能继续执行本条指令的写回。 */
+            if (BIT(op, 11)) { if (!load(cpu, address, 4, &cpu->r[rd])) goto done; }
+            else if (!store(cpu, address, 4, cpu->r[rd])) goto done;
             address += 4u;
         }
-        cpu->r[rn] = address;
+        /* LDM 的基址也在列表中时不写回，保留从内存加载的寄存器值。 */
+        if (!BIT(op, 11) || (op & (1u << rn)) == 0u)
+            cpu->r[rn] = address;
     } else if ((op & 0xF000u) == 0xD000u && (op & 0x0F00u) < 0x0E00u) {
         if (condition_passed(cpu, (op >> 8) & 15u))
-            cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0xFFu, 8) << 1);
+            cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0xFFu, 8) * 2);
     } else if ((op & 0xFF00u) == 0xBE00u) {
         cpu->stopped = true; cpu->stop_reason = CORTEX_M0_STOP_BKPT;
     } else if ((op & 0xFF00u) == 0xBF00u) {
@@ -541,7 +579,7 @@ CortexM0StepResult cortex_m0_step(CortexM0 *cpu)
             raise_undefined(cpu);
         }
     } else if ((op & 0xF800u) == 0xE000u) {
-        cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0x7FFu, 11) << 1);
+        cpu->r[CORTEX_M0_PC] = pc + 4u + (uint32_t)(sign_extend(op & 0x7FFu, 11) * 2);
     } else if (op == 0xF3EFu || (op & 0xFFF0u) == 0xF380u ||
                op == 0xF3BFu) {
         uint32_t second_raw;

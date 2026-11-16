@@ -9,6 +9,18 @@ static int32_t extend(uint32_t value, unsigned bits)
     return (int32_t)((value ^ sign) - sign);
 }
 
+static const char *special_name(unsigned special)
+{
+    switch (special) {
+    case 0: return "apsr"; case 1: return "iapsr";
+    case 2: return "eapsr"; case 3: return "xpsr";
+    case 5: return "ipsr"; case 6: return "epsr"; case 7: return "iepsr";
+    case 8: return "msp"; case 9: return "psp";
+    case 16: return "primask"; case 20: return "control";
+    default: return "reserved";
+    }
+}
+
 unsigned py32_thumb_disassemble(uint32_t pc, uint16_t op, uint16_t next,
                                 char *text, size_t size)
 {
@@ -41,14 +53,15 @@ unsigned py32_thumb_disassemble(uint32_t pc, uint16_t op, uint16_t next,
         static const char *names[4] = {"add", "cmp", "mov", "bx"};
         unsigned high_rd = rd | ((op >> 4) & 8u);
         unsigned high_rm = (op >> 3) & 15u;
-        snprintf(text, size, "%s r%u, r%u", names[(op >> 8) & 3u],
-                 high_rd, high_rm);
+        if (((op >> 8) & 3u) == 3u)
+            snprintf(text, size, "%s r%u", (op & 0x80u) ? "blx" : "bx", high_rm);
+        else snprintf(text, size, "%s r%u, r%u", names[(op >> 8) & 3u], high_rd, high_rm);
     } else if ((op & 0xF800u) == 0x4800u) {
         snprintf(text, size, "ldr r%u, [pc, #%u]", (op >> 8) & 7u,
                  (op & 0xFFu) << 2);
     } else if ((op & 0xF000u) == 0xD000u && ((op >> 8) & 15u) < 14u) {
         unsigned cond = (op >> 8) & 15u;
-        uint32_t target = pc + 4u + (uint32_t)(extend(op & 0xFFu, 8) << 1);
+        uint32_t target = pc + 4u + (uint32_t)(extend(op & 0xFFu, 8) * 2);
         snprintf(text, size, "b%s 0x%08X", conditions[cond], target);
     } else if ((op & 0xFF00u) == 0xDF00u) {
         snprintf(text, size, "svc #%u", op & 0xFFu);
@@ -59,8 +72,17 @@ unsigned py32_thumb_disassemble(uint32_t pc, uint16_t op, uint16_t next,
         unsigned hint = (op >> 4) & 15u;
         snprintf(text, size, "%s", hint < 5u ? hints[hint] : "hint");
     } else if ((op & 0xF800u) == 0xE000u) {
-        uint32_t target = pc + 4u + (uint32_t)(extend(op & 0x7FFu, 11) << 1);
+        uint32_t target = pc + 4u + (uint32_t)(extend(op & 0x7FFu, 11) * 2);
         snprintf(text, size, "b 0x%08X", target);
+    } else if (op == 0xF3EFu && (next & 0xF000u) == 0x8000u) {
+        snprintf(text, size, "mrs r%u, %s", (next >> 8) & 15u, special_name(next & 255u));
+        return 2u;
+    } else if ((op & 0xFFF0u) == 0xF380u && (next & 0xFF00u) == 0x8800u) {
+        snprintf(text, size, "msr %s, r%u", special_name(next & 255u), op & 15u);
+        return 2u;
+    } else if (op == 0xF3BFu && (next == 0x8F4Fu || next == 0x8F5Fu || next == 0x8F6Fu)) {
+        snprintf(text, size, "%s sy", next == 0x8F4Fu ? "dsb" : next == 0x8F5Fu ? "dmb" : "isb");
+        return 2u;
     } else if ((op & 0xF800u) == 0xF000u && (next & 0xD000u) == 0xD000u) {
         unsigned s = (op >> 10) & 1u, j1 = (next >> 13) & 1u;
         unsigned j2 = (next >> 11) & 1u;
@@ -69,7 +91,7 @@ unsigned py32_thumb_disassemble(uint32_t pc, uint16_t op, uint16_t next,
             ((op & 0x03FFu) << 12) | ((next & 0x07FFu) << 1);
         snprintf(text, size, "bl 0x%08X", pc + 4u + (uint32_t)extend(imm, 25));
         return 2u;
-    } else if ((op & 0xF000u) == 0x6000u) {
+    } else if ((op & 0xE000u) == 0x6000u) {
         bool load = (op & 0x0800u) != 0u, byte = (op & 0x1000u) != 0u;
         snprintf(text, size, "%s%s r%u, [r%u, #%u]", load ? "ldr" : "str",
                  byte ? "b" : "", rd, rn,

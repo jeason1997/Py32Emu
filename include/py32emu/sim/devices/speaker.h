@@ -4,6 +4,7 @@
 #include "py32emu/sim/device.h"
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /*
  * 虚拟扬声器是板级器件：pin 0 接差分负端（PA0/TIM1_CH3），pin 1 接正端
@@ -22,6 +23,8 @@ typedef struct {
     SimLevel positive, negative;
     uint64_t elapsed_cycles;
     int64_t accumulator;
+    double moment, previous_moment;
+    bool filter_enabled;
     uint64_t samples;
 } SimSpeaker;
 
@@ -30,5 +33,7 @@ void sim_speaker_init(SimSpeaker *speaker, const char *name,
                       uint32_t sample_rate_hz);
 void sim_speaker_set_sink(SimSpeaker *speaker, Py32SpeakerSink sink,
                           void *context);
+/* 默认三角窗抑制 PWM 混叠；关闭后保留矩形窗，供引脚积分诊断使用。 */
+void sim_speaker_set_filter(SimSpeaker *speaker, bool enabled);
 
 #endif
