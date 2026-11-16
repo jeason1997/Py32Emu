@@ -131,4 +131,20 @@ native:
 	$(MAKE) clean
 	$(MAKE) CFLAGS="-std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto"
 
+# 运行画像只影响编译器的代码布局/内联，不改变模拟语义或固件。
+PROFILE_FIRMWARE ?=
+PROFILE_ARGS ?=
+PROFILE_STEPS ?= 600000000
+PROFILE_BUILD := build/profile-native
+PROFILE_DATA := $(abspath $(PROFILE_BUILD)/profile)
+PROFILE_FLAGS := -std=c11 -Wall -Wextra -Wpedantic -O3 -march=native -flto
+.PHONY: native-profile
+native-profile:
+	@test -f "$(PROFILE_FIRMWARE)" || { echo '请设置 PROFILE_FIRMWARE 为训练固件路径'; exit 1; }
+	@mkdir -p "$(PROFILE_DATA)"
+	@find "$(PROFILE_DATA)" -type f -name '*.gcda' -delete
+	$(MAKE) -B BUILD_DIR=$(PROFILE_BUILD) CFLAGS="$(PROFILE_FLAGS) -fprofile-generate=$(PROFILE_DATA)"
+	$(PROFILE_BUILD)/py32emu "$(PROFILE_FIRMWARE)" $(PROFILE_ARGS) --steps $(PROFILE_STEPS) --wav $(PROFILE_BUILD)/training.wav --wav-rate 44100
+	$(MAKE) -B BUILD_DIR=$(PROFILE_BUILD) CFLAGS="$(PROFILE_FLAGS) -fprofile-use=$(PROFILE_DATA) -fprofile-correction"
+
 -include $(DEPFILES)

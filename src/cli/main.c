@@ -159,11 +159,11 @@ static bool audio_open(AudioOutput *capture, unsigned rate)
     spec.format = PA_SAMPLE_S16LE;
     spec.rate = rate;
     spec.channels = 1;
-    /* 约 100 ms 目标缓冲：足够吸收宿主调度抖动，又不会让控制延迟过大。 */
-    attr.maxlength = (uint32_t)-1;
-    attr.tlength = rate * 2u / 10u;
-    attr.prebuf = (uint32_t)-1;
-    attr.minreq = (uint32_t)-1;
+    /* 固件解释执行有突发负载，先积累 1 秒，再由声卡消耗速度限流。 */
+    attr.tlength = rate * 2u;
+    attr.maxlength = rate * 4u;
+    attr.prebuf = attr.tlength;
+    attr.minreq = rate * 2u / 100u;
     attr.fragsize = (uint32_t)-1;
     capture->audio = pa_simple_new(NULL, "Py32Emu", PA_STREAM_PLAYBACK, NULL,
                                    "NSF speaker", &spec, NULL, &attr, &error);
@@ -339,6 +339,10 @@ int main(int argc, char **argv)
             return 2;
         }
     }
+    if (wav_path != NULL && audio && wav_rate != audio_rate) {
+        fprintf(stderr, "同时输出 WAV 和音频时采样率必须相同\n");
+        return 2;
+    }
 #if !defined(PY32EMU_HAVE_PULSE)
     (void)audio_rate;
     if (audio) {
@@ -417,7 +421,7 @@ int main(int argc, char **argv)
         py32_mcu_init(&mcu, &soc, clock_hz);
         sim_board_init(&board, &mcu.base);
         sim_speaker_init(&speaker, "speaker", audio_output_sample, &output,
-                         audio_rate);
+                         wav_path != NULL ? wav_rate : audio_rate);
         negative_net = sim_board_add_net(&board, "SPK_NEG");
         positive_net = sim_board_add_net(&board, "SPK_POS");
         if (negative_net < 0 || positive_net < 0 ||
@@ -460,7 +464,9 @@ int main(int argc, char **argv)
                     putchar('\n');
                 }
                 ++steps;
-                if (realtime && soc.cpu.cycles >= next_slice) {
+                /* 音频流的阻塞写入已经负责节拍，不能再按墙钟逐毫秒睡眠，
+                 * 否则生产者无法提前填充缓冲，短暂调度抖动就会插入断音。 */
+                if (realtime && !audio && soc.cpu.cycles >= next_slice) {
                     uint64_t elapsed = soc.cpu.cycles - start_cycles;
                     uint64_t seconds = elapsed / clock_hz;
                     uint64_t remainder = elapsed % clock_hz;

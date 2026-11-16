@@ -31,3 +31,17 @@ assert max(abs(sample) for sample in samples) > 1000
 PY
 
 echo "WAV export test passed."
+
+# 非默认采样率必须改变实际 PCM 样本数，而不只是 WAV 文件头。
+output=$("$root/build/py32emu" "$build/wav_tone.elf" --steps 10000000 \
+    --wav "$build/wav_tone_48k.wav" --wav-rate 48000)
+python3 - "$build/wav_tone.wav" "$build/wav_tone_48k.wav" <<'PY'
+import sys
+import wave
+
+with wave.open(sys.argv[1], "rb") as first, wave.open(sys.argv[2], "rb") as second:
+    assert second.getframerate() == 48000
+    assert abs(first.getnframes() / first.getframerate()
+               - second.getnframes() / second.getframerate()) < 1 / 22050
+PY
+echo "WAV sample-rate test passed."

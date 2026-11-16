@@ -2,7 +2,8 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
-make -C "$root/examples/hello_world" clean all
+make -C "$root/examples/hello_world" clean
+make -C "$root/examples/hello_world" all
 output=$($root/build/py32emu \
     "$root/examples/hello_world/build/hello_world.elf" --steps 100000)
 printf '%s\n' "$output"

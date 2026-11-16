@@ -18,7 +18,7 @@ typedef struct {
     void *sink_context;
     uint32_t sample_rate_hz;
     uint32_t cycles_per_second;
-    uint64_t sample_interval;
+    uint64_t sample_interval; /* 周期乘采样率的相位单位，下同 */
     SimLevel positive, negative;
     uint64_t elapsed_cycles;
     int64_t accumulator;

@@ -4,6 +4,7 @@
 #include "py32emu/core/cortex_m0.h"
 #include "py32emu/core/disassembler.h"
 #include "py32emu/sim/devices/speaker.h"
+#include "py32emu/sim/mcu/py32.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -25,12 +26,96 @@ static void put_le32(uint8_t *p, uint32_t value)
 
 static unsigned speaker_samples;
 static int16_t speaker_last;
+static int16_t speaker_capture[8];
 
 static void capture_speaker(void *context, int16_t sample)
 {
     (void)context;
+    if (speaker_samples < 8u) speaker_capture[speaker_samples] = sample;
     ++speaker_samples;
     speaker_last = sample;
+}
+
+static void test_timer_batch(void)
+{
+    uint32_t seed = 1u;
+    unsigned i;
+    for (i = 0u; i < 2000u; ++i) {
+        Py32Timer timer;
+        unsigned cycles, n;
+        uint32_t count, prescaler, status = 0u;
+        bool irq = false;
+        py32_timer_reset(&timer, NULL, 0u);
+        seed = seed * 1664525u + 1013904223u;
+        timer.reg[0] = 1u;
+        timer.reg[3] = i & 1u;
+        timer.reg[10] = (seed >> 16) & 15u;
+        timer.reg[11] = (seed >> 8) & 255u;
+        timer.reg[9] = seed & 511u;
+        timer.prescaler_counter = (seed >> 24) & 31u;
+        cycles = (seed >> 5) & 1023u;
+        count = timer.reg[9];
+        prescaler = timer.prescaler_counter;
+        /* 与原先逐周期算法比较，覆盖分频、越界 CNT 和多次回卷。 */
+        for (n = 0u; n < cycles; ++n) {
+            if (++prescaler > timer.reg[10]) {
+                prescaler = 0u;
+                if (count >= timer.reg[11]) {
+                    count = 0u;
+                    status = 1u;
+                    irq = timer.reg[3] != 0u;
+                } else ++count;
+            }
+        }
+        assert(py32_timer_tick(&timer, cycles) == irq);
+        assert(timer.reg[9] == count && timer.prescaler_counter == prescaler);
+        assert(timer.reg[4] == status);
+    }
+}
+
+static void test_pwm_configuration_cache(void)
+{
+    uint8_t firmware[16] = {0};
+    Py32FirmwareImage image = {0};
+    Py32Soc soc;
+    Py32Mcu mcu;
+    char error[128];
+    uint64_t generation;
+    put_le32(firmware, 0x20000C00u);
+    put_le32(firmware + 4, 0x08000009u);
+    put_le16(firmware + 8, 0xE7FEu); /* B . */
+    image.data = firmware;
+    image.size = sizeof(firmware);
+    image.load_address = 0x08000000u;
+    assert(py32_soc_configure(&soc, py32f002ax5_description(), &image,
+                              error, sizeof(error)));
+    py32_mcu_init(&mcu, &soc, 48000000u);
+    mcu.base.ops->reset(&mcu.base);
+    assert(py32_bus_write(&soc.bus, 0x40021034u, 4u, 1u));
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4u, 1u << 11));
+    assert(py32_bus_write(&soc.bus, 0x50000000u, 4u, 0xAu));
+    assert(py32_bus_write(&soc.bus, 0x50000020u, 4u, 0xDDu));
+    assert(py32_bus_write(&soc.bus, 0x40012C20u, 4u, (1u << 8) | (1u << 12)));
+    assert(py32_bus_write(&soc.bus, 0x40012C44u, 4u, 1u << 15));
+    assert(py32_bus_write(&soc.bus, 0x40012C00u, 4u, 1u));
+    mcu.base.ops->step(&mcu.base);
+    assert(mcu.pwm_enabled);
+    generation = soc.bus.io_write_generation;
+    assert(py32_bus_write(&soc.bus, 0x20000000u, 4u, 0xBF00u));
+    assert(soc.bus.io_write_generation == generation);
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4u, 0u));
+    mcu.base.ops->step(&mcu.base);
+    assert(!mcu.pwm_enabled);
+    assert(py32_bus_write(&soc.bus, 0x40021040u, 4u, 1u << 11));
+    mcu.base.ops->step(&mcu.base);
+    assert(mcu.pwm_enabled);
+    assert(py32_bus_write(&soc.bus, 0x50000000u, 4u, 0u));
+    mcu.base.ops->step(&mcu.base);
+    assert(!mcu.pwm_enabled);
+    mcu.base.ops->reset(&mcu.base);
+    mcu.base.ops->step(&mcu.base);
+    assert(!mcu.pwm_enabled);
+    py32_soc_destroy(&soc);
 }
 
 static uint16_t spi_echo(void *context, uint16_t output, unsigned bits)
@@ -72,6 +157,8 @@ static const Py32I2cTargetOps i2c_ops = {
 
 int main(void)
 {
+    test_timer_batch();
+    test_pwm_configuration_cache();
     Py32Bus bus;
     uint8_t ram[3u * 1024u] = {0};
     uint8_t flash[8] = {0x78, 0x56, 0x34, 0x12};
@@ -111,6 +198,20 @@ int main(void)
     assert(value == 0xAABBCCDDu);
     assert(!py32_bus_read(&bus, 0x20000001u, 2, &value));
     assert(bus.faulted && bus.fault_address == 0x20000001u);
+    py32_bus_set_fetch(&bus, flash, 0x08000000u, sizeof(flash));
+    py32_bus_set_data(&bus, ram, 0x20000000u, sizeof(ram));
+    assert(py32_bus_fetch16(&bus, 0x08000000u, &value) && value == 0x5678u);
+    assert(!py32_bus_fetch16(&bus, 0x08000001u, &value));
+    assert(bus.fault_address == 0x08000001u);
+    assert(py32_bus_fetch16(&bus, 0x20000004u, &value) && value == 0xCCDDu);
+    assert(py32_bus_write(&bus, 0x20000004u, 2u, 0xBF00u));
+    assert(py32_bus_fetch16(&bus, 0x20000004u, &value) && value == 0xBF00u);
+    assert(!py32_bus_fetch16(&bus, 0x20000001u, &value));
+    assert(bus.fault_address == 0x20000001u);
+    assert(!py32_bus_fetch16(&bus, 0x08000008u, &value));
+    assert(!py32_bus_fetch16(&bus, 0x08000000u, NULL));
+    py32_bus_set_fetch(&bus, NULL, 0u, 0u);
+    py32_bus_set_data(&bus, NULL, 0u, 0u);
 
     chip = py32_chip_by_name("py32f002a");
     assert(chip != NULL);
@@ -428,12 +529,53 @@ int main(void)
         sim_speaker_init(&speaker, "speaker", capture_speaker, NULL, 22050u);
         speaker.base.ops->pin_changed(&speaker.base, 0u, SIM_LEVEL_LOW);
         speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_HIGH);
-        speaker.base.ops->tick(&speaker.base, 2176u, 48000000u);
+        speaker.base.ops->tick(&speaker.base, 2177u, 48000000u);
         assert(speaker_samples == 1u && speaker_last > 30000);
         speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_LOW);
-        speaker.base.ops->tick(&speaker.base, 2176u, 48000000u);
-        assert(speaker_samples == 2u && speaker_last == 0);
+        speaker.base.ops->tick(&speaker.base, 2177u, 48000000u);
+        assert(speaker_samples == 2u && speaker_last >= 0 && speaker_last < 16);
         sim_speaker_set_sink(&speaker, NULL, NULL);
+        /* 大批次推进必须与精确采样率一致，不能累积取整漂移。 */
+        speaker.base.ops->reset(&speaker.base);
+        speaker.base.ops->tick(&speaker.base, 48000000u, 48000000u);
+        assert(speaker.samples == 22050u);
+        speaker.base.ops->reset(&speaker.base);
+        speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_HIGH);
+        speaker.base.ops->tick(&speaker.base, 1u, 44100u);
+        speaker.base.ops->pin_changed(&speaker.base, 1u, SIM_LEVEL_LOW);
+        sim_speaker_set_sink(&speaker, capture_speaker, NULL);
+        speaker_samples = 0u;
+        speaker.base.ops->tick(&speaker.base, 3u, 44100u);
+        assert(speaker.samples == 2u && speaker_last == 0);
+        assert(speaker_capture[0] == 16384 && speaker_capture[1] == 0);
+    }
+    {
+        Py32Timer timer;
+        py32_timer_reset(&timer, NULL, 0u);
+        assert(py32_timer_write(&timer, 0x2Cu, 4u, 255u));
+        assert(py32_timer_write(&timer, 0x3Cu, 4u, 128u));
+        assert(py32_timer_write(&timer, 0x1Cu, 4u, (1u << 3) | (1u << 11)));
+        assert(py32_timer_write(&timer, 0x14u, 4u, 1u));
+        assert(py32_timer_compare(&timer, 3u) == 128u);
+        assert(py32_timer_write(&timer, 0x3Cu, 4u, 80u));
+        assert(py32_timer_write(&timer, 0x40u, 4u, 176u));
+        assert(py32_timer_compare(&timer, 3u) == 128u);
+        assert(py32_timer_compare(&timer, 4u) == 0u);
+        assert(py32_timer_write(&timer, 0x00u, 4u, 1u));
+        assert(!py32_timer_tick(&timer, 255u));
+        assert(py32_timer_compare(&timer, 3u) == 128u);
+        assert(!py32_timer_tick(&timer, 1u));
+        assert(py32_timer_compare(&timer, 3u) == 80u);
+        assert(py32_timer_compare(&timer, 4u) == 176u);
+        /* UDIS 阻止影子寄存器传送和 UIF，URS 不阻止传送。 */
+        assert(py32_timer_write(&timer, 0x00u, 4u, 3u));
+        assert(py32_timer_write(&timer, 0x3Cu, 4u, 30u));
+        assert(py32_timer_write(&timer, 0x10u, 4u, 0u));
+        assert(!py32_timer_tick(&timer, 512u));
+        assert(py32_timer_compare(&timer, 3u) == 80u && timer.reg[4] == 0u);
+        assert(py32_timer_write(&timer, 0x00u, 4u, 5u));
+        assert(py32_timer_write(&timer, 0x14u, 4u, 1u));
+        assert(py32_timer_compare(&timer, 3u) == 30u && timer.reg[4] == 0u);
     }
     assert(py32_bus_write(&soc.bus, 0x40012C0Cu, 4, 1u));
     assert(py32_bus_write(&soc.bus, 0x40012C00u, 4, 1u));

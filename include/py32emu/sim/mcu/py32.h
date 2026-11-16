@@ -8,6 +8,8 @@ typedef struct {
     SimMcu base;
     Py32Soc *soc;
     SimLevel last_pa0, last_pa1;
+    uint64_t pwm_generation;
+    bool pwm_enabled;
 } Py32Mcu;
 
 /* 把 Py32Soc 接到通用电路层；clock_hz 是 step() 返回周期的时基。 */

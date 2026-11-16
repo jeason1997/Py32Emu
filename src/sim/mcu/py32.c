@@ -24,7 +24,7 @@ static SimLevel pwm_level(const Py32Soc *soc, unsigned channel)
 {
     const Py32Timer *tim = &soc->tim1;
     uint32_t polarity_bit = channel == 3u ? (1u << 9) : (1u << 13);
-    uint32_t compare = tim->reg[channel == 3u ? TIM1_CCR3 : TIM1_CCR4];
+    uint32_t compare = py32_timer_compare(tim, channel);
     bool high = tim->reg[TIM1_CNT] < compare;
     if ((tim->reg[TIM1_CCER] & polarity_bit) != 0u) high = !high;
     return high ? SIM_LEVEL_HIGH : SIM_LEVEL_LOW;
@@ -55,6 +55,7 @@ static void py32_mcu_reset(SimMcu *mcu)
     char error[32];
     adapter->last_pa0 = SIM_LEVEL_Z;
     adapter->last_pa1 = SIM_LEVEL_Z;
+    adapter->pwm_generation = UINT64_MAX;
     mcu->pin_dirty = true;
     (void)py32_soc_reset(adapter->soc, error, sizeof(error));
 }
@@ -64,7 +65,13 @@ static unsigned py32_mcu_step(SimMcu *mcu)
     Py32Mcu *adapter = mcu->state;
     SimLevel pa0 = SIM_LEVEL_Z, pa1 = SIM_LEVEL_Z;
     unsigned cycles = py32_soc_step(adapter->soc).cycles;
-    if (pwm_active(adapter->soc)) {
+    /* 引脚复用/时钟/输出使能只在寄存器写入后重查，计数器和有效 CCR
+     * 仍逐指令观察；更新事件产生的比较值变化不能被缓存掉。 */
+    if (adapter->pwm_generation != adapter->soc->bus.io_write_generation) {
+        adapter->pwm_generation = adapter->soc->bus.io_write_generation;
+        adapter->pwm_enabled = pwm_active(adapter->soc);
+    }
+    if (adapter->pwm_enabled) {
         pa0 = pwm_level(adapter->soc, 3u);
         pa1 = pwm_level(adapter->soc, 4u);
     }
@@ -138,4 +145,6 @@ void py32_mcu_init(Py32Mcu *adapter, Py32Soc *soc, uint32_t clock_hz)
     adapter->soc = soc;
     adapter->last_pa0 = SIM_LEVEL_Z;
     adapter->last_pa1 = SIM_LEVEL_Z;
+    adapter->pwm_generation = UINT64_MAX;
+    adapter->pwm_enabled = false;
 }

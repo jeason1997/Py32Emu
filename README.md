@@ -81,9 +81,14 @@ USART1 TX (13): 48 65 6C 6C 6F 20 57 6F 72 6C 64 0D 0A
 `--audio` 在 Linux/WSLg 上通过 PulseAudio 实时播放；默认 22,050 Hz，
 可用 `--audio-rate` 指定。`--realtime` 只按墙钟推进，不输出声音。
 `--clock-hz` 指定固件运行时钟，本项目使用 48 MHz。
+实时音频由声卡阻塞写入限速，不再叠加墙钟睡眠；默认先填充约 1 秒缓冲，
+以吸收固件解释执行的突发负载，开始播放和控制响应也会因此增加延迟。
+同时使用 `--audio` 和 `--wav` 时，两种采样率必须一致。
+`CLOCK` 的墙钟包含启动预缓冲和最后排空，音频是否断流应结合回录判断；
+离线生成 WAV 的耗时更适合衡量生产速度余量。
 
 `--wav` 通过虚拟扬声器（[speaker.c](src/sim/devices/speaker.c)）把 TIM1
-CH3/CH4 的差分 PWM 比较值重建为 PCM，生成 16 位单声道 WAV；默认 22,050 Hz，
+CH3/CH4 的可观察差分引脚电平积分为 PCM，生成 16 位单声道 WAV；默认 22,050 Hz，
 可用 `--wav-rate` 指定。它记录的是扬声器模型输出的样本，不是 PA0/PA1 引脚上
 逐周期的方波电平。
 
@@ -101,8 +106,32 @@ make native
 
 等价于使用 `-O3 -march=native -flto` 重新构建。实测约 20.5–21.6 秒，即约
 51–54M 周期/秒。`make native` 只适合本机，CI 和发布构建仍使用默认可移植参数。
-实时音频需要 PulseAudio（WSLg 已提供）；当前 `sim/board` 结构下，native
-构建 `--realtime` 约 0.97x、`--audio` 约 0.92x，已接近但尚未完全达到 1:1。
+实时音频需要 PulseAudio（WSLg 已提供）。若本机优化构建仍无足够余量，可使用
+真实固件收集编译器运行画像并重建；固件内容与模拟语义保持不变：
+
+```sh
+make native-profile PROFILE_FIRMWARE=/path/to/firmware.elf \
+  PROFILE_ARGS='--chip py32f002a-32k'
+./build/profile-native/py32emu /path/to/firmware.elf --chip py32f002a-32k \
+  --audio --audio-rate 44100
+```
+
+产物位于 `build/profile-native/`，只适用于本机；默认训练 600M 条指令，可用
+`PROFILE_STEPS` 调整。每次训练会清除该构建目录内的旧画像。
+2026-11-16 同一 NSF ELF 的 600M 条指令（13.669 秒模拟时间）测得：接手时
+native 版本 15.67 秒，本轮普通 native 版本 13.56 秒，画像优化版本 11.67 秒。
+这是单次本机测量，不能保证所有曲目、宿主负载或固件均持续实时。
+后续 45.553 秒连续播放回录仍出现断音，测得约 0.85–0.90 倍实时；1 秒缓冲只
+通过了 13.669 秒短片段验证。因此当前仍应使用完整 WAV 试听来获得稳定播放，
+不能将短片段结果描述为持续实时或与实机 1:1。
+
+音频诊断脚本可对比同采样率的源 WAV 与 PulseAudio monitor 回录（另需 NumPy、Matplotlib）：
+
+```sh
+python3 tests/integration/analyze_audio.py source.wav loopback.wav build/audio-analysis
+```
+
+报告包含逐窗相关度、延迟变化、削波计数和波形图；回录不包含扬声器或功放的实际声学输出。
 
 ## Web 调试台
 

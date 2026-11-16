@@ -283,8 +283,8 @@ CortexM0StepResult py32_soc_step(Py32Soc *soc)
             soc->system.nvic_pending |= 1u << 17;
         if ((peripherals & PY32_PERIPHERAL_USART1) &&
             (soc->rcc.apbenr2 & (1u << 14)) &&
-            (soc->usart1.cr1 & ((1u << 13) | (1u << 7) |
-                                (1u << 6) | (1u << 5))) != 0u &&
+            (soc->usart1.cr1 & soc->usart1.sr &
+             ((1u << 7) | (1u << 6) | (1u << 5))) != 0u &&
             py32_usart_irq_pending(&soc->usart1))
             soc->system.nvic_pending |= 1u << 27;
         if ((peripherals & PY32_PERIPHERAL_SPI1) &&

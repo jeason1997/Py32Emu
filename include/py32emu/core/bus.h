@@ -36,6 +36,7 @@ typedef struct {
     uint8_t *data_memory;
     uint32_t data_base;
     uint32_t data_size;
+    uint64_t io_write_generation;
     uint32_t fault_address;
     bool faulted;
 } Py32Bus;
@@ -58,10 +59,20 @@ bool py32_bus_write(Py32Bus *bus, uint32_t address, unsigned size,
 static inline bool py32_bus_fetch16(Py32Bus *bus, uint32_t address,
                                     uint32_t *value)
 {
-    if (bus != NULL && bus->fetch_memory != NULL &&
+    if (bus == NULL || value == NULL || (address & 1u) != 0u)
+        return py32_bus_read(bus, address, 2u, value);
+    if (bus->fetch_memory != NULL &&
         bus->fetch_size >= 2u && address >= bus->fetch_base &&
         address - bus->fetch_base <= bus->fetch_size - 2u) {
         const uint8_t *p = bus->fetch_memory + (address - bus->fetch_base);
+        *value = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
+        return true;
+    }
+    /* 固件允许把热点函数复制到 SRAM；同样走安全的内联半字取指。 */
+    if (bus->data_memory != NULL && bus->data_size >= 2u &&
+        address >= bus->data_base &&
+        address - bus->data_base <= bus->data_size - 2u) {
+        const uint8_t *p = bus->data_memory + (address - bus->data_base);
         *value = (uint32_t)p[0] | ((uint32_t)p[1] << 8);
         return true;
     }
