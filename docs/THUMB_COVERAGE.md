@@ -1,6 +1,6 @@
 # ARMv6-M Thumb 指令覆盖
 
-最后更新：2026-08-13
+最后更新：2026-11-04
 
 PY32F002A 使用 Cortex-M0+，模拟器以 ARMv6-M Thumb 指令集为边界。覆盖审计以芯片目标
 和 `arm-none-eabi` 对 `-mcpu=cortex-m0plus` 的实际汇编结果为准，不引入更高架构指令。
@@ -18,6 +18,10 @@ PY32F002A 使用 Cortex-M0+，模拟器以 ARMv6-M Thumb 指令集为边界。�
 
 `tests/firmware/thumb_control_flow.*` 使用真实 Cortex-M0+ 工具链验证 `ROR`、`SVC`、
 事件提示以及由 SysTick 中断唤醒 `WFI`。其他指令由基础测试和各官方 SDK 固件回归共同覆盖。
+
+2026-11-04 第三方固件联调发现，寄存器形式 `STRH/LDRH`（`0x5000` 编码空间）曾被
+`0xF200` 掩码误排除而进入未定义指令；已改为按 `0xF000` 分类，并由
+`tests/unit/test_foundation.c` 使用真实编码覆盖 `STRH/LDRH` 寄存器与立即数偏移形式。
 
 ## 架构边界
 

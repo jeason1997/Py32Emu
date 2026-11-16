@@ -51,3 +51,16 @@ PY32F002A 功能级模拟器版本完成，不表示芯片所有保留位、全�
 
 这些边界不会阻止已列出的官方固件和调试工作流运行，但未来扩展 PY32F003 或新增复杂固件时，
 应继续以“官方资料/实机行为 + 对应回归测试”的方式补充模型。
+
+## 2026-11-04 第三方固件补充验证
+
+在不修改外部工程的前提下，使用 `E:\Projects\MCU_Project\32\Py32\PY32F002A_VSCode_NSF`
+的 `PY32F002A_NSF.elf`（32 KiB/4 KiB 版本）验证了 RCC 隐藏 PLL、SysTick 自由运行、
+TIM1 比较值写入、TIM16 采样中断、USART1 接收中断和 DBGMCU 写入路径。固件通过串口
+自报 `track=1 plays=273 under=0 late=0 error=0`，发送下一曲命令后报告
+`track=2 plays=41 error=0`；长跑 10 亿条指令（约 22.9 秒模拟时间）后为
+`track=1 plays=1367 under=0 late=0 error=0`。
+
+该验证属于功能级真实固件联调：它不覆盖 TIM1 引脚 PWM 波形、模拟音频质量、DMA 或
+逐周期时序，也不替代官方示例逐项矩阵。联调中修复的 Thumb 半字寄存器访问、ELF 零
+Filesz 段、RCC PLL 和 USART 中断缺口均已加入单元回归。
